@@ -89,7 +89,8 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ book_id: z.string().uuid() }).parse(i))
   .handler(async ({ data, context }) => {
-    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
+    const isAdmin = !!roleRow;
     if (!isAdmin) throw new Error("Forbidden");
     const { data: book, error: bErr } = await context.supabase.from("books").select("id, title, pdf_path").eq("id", data.book_id).single();
     if (bErr || !book?.pdf_path) throw new Error("Book has no PDF uploaded");
@@ -149,7 +150,8 @@ export const setBookPdfPath = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ book_id: z.string().uuid(), pdf_path: z.string() }).parse(i))
   .handler(async ({ data, context }) => {
-    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
+    const isAdmin = !!roleRow;
     if (!isAdmin) throw new Error("Forbidden");
     const { error } = await context.supabase.from("books").update({ pdf_path: data.pdf_path }).eq("id", data.book_id);
     if (error) throw new Error(error.message);
@@ -161,7 +163,8 @@ export const deleteBookPdf = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ book_id: z.string().uuid() }).parse(i))
   .handler(async ({ data, context }) => {
-    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
+    const isAdmin = !!roleRow;
     if (!isAdmin) throw new Error("Forbidden");
     const { data: b } = await context.supabase.from("books").select("pdf_path").eq("id", data.book_id).single();
     if (b?.pdf_path) await context.supabase.storage.from("book-pdfs").remove([b.pdf_path]);
