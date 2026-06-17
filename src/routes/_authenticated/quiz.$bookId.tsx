@@ -31,7 +31,7 @@ function Quiz() {
   const { data: questions } = useQuery({
     queryKey: ["quiz", bookId],
     queryFn: async () => {
-      const { data } = await supabase.from("quiz_questions").select("*").eq("book_id", bookId).order("display_order");
+      const { data } = await supabase.from("quiz_questions").select("id, book_id, question, options, explanation, display_order").eq("book_id", bookId).order("display_order");
       return data ?? [];
     },
   });
