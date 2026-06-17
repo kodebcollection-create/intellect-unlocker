@@ -59,7 +59,9 @@ export const submitQuiz = createServerFn({ method: "POST" })
   }).parse(i))
   .handler(async ({ data, context }) => {
     const ids = data.answers.map(a => a.question_id);
-    const { data: qs, error } = await context.supabase
+    // Use admin client to read the answer key — regular users have no SELECT grant on `correct_index`.
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: qs, error } = await supabaseAdmin
       .from("quiz_questions").select("id, correct_index, explanation").in("id", ids);
     if (error) throw new Error(error.message);
     const map = new Map(qs.map(q => [q.id, q]));
