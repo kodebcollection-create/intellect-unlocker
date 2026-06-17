@@ -31,6 +31,61 @@ Six categories, five books each, in fixed order:
 
 All 30 books are seeded as placeholders. Replace titles, authors, and descriptions in the `books` table via SQL or extend the admin dashboard.
 
+## Local Development
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 20+ (LTS recommended)
+- [Bun](https://bun.sh/) 1.2+ (preferred package manager for this project)
+- A Lovable Cloud project (database + auth + storage already provisioned)
+
+### 1. Clone / download the codebase
+
+If you downloaded the ZIP, extract it and `cd` into the folder.
+
+### 2. Install dependencies
+
+```bash
+bun install
+```
+
+If you don't have Bun, you can use `npm install` — but the lockfile is `bun.lock`, so Bun is recommended.
+
+### 3. Environment variables
+
+Copy `.env` to `.env.local` (or keep `.env` if it already exists). The required variables are:
+
+```env
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=<anon-key>
+VITE_SUPABASE_PROJECT_ID=<project-ref>
+VITE_LOVABLE_API_KEY=<lovable-ai-key>
+```
+
+These are **auto-filled** by Lovable Cloud when you work inside the Lovable editor. If you run the project outside Lovable, you must supply them manually from your Cloud settings.
+
+### 4. Run the dev server
+
+```bash
+bun dev
+```
+
+The app starts at `http://localhost:3000` by default.
+
+### 5. Build for production
+
+```bash
+bun run build
+```
+
+This outputs a production bundle ready for the Cloudflare Workers runtime that TanStack Start targets.
+
+### Common issues
+
+- **Port 3000 in use** — Vite will try the next available port automatically, or set `PORT=3001 bun dev`.
+- **Missing `@lovable.dev/cloud-auth-js`** — Make sure you ran `bun install`; this package is scoped to the Lovable registry.
+- **Database connection errors outside Lovable** — The app expects the Supabase URL + key to be valid. If running locally with your own Supabase project, run the migrations in `supabase/migrations/` against your database first.
+
 ## Hosting
 
 This app deploys natively on Lovable:
@@ -40,14 +95,26 @@ This app deploys natively on Lovable:
 3. Frontend changes require clicking **Update** in the publish dialog. Backend changes (server functions, migrations) deploy automatically.
 4. Optional: connect a custom domain in **Project Settings → Domains** (after first publish).
 
-### Required services (already provisioned via Lovable Cloud)
+### Self-hosting
 
-- Postgres database with all tables, RLS, and seed data
-- Auth (email/password + Google OAuth via the managed broker)
-- Storage bucket `book-pdfs` (private; signed URLs valid 1 hour)
-- AI Gateway (`LOVABLE_API_KEY` auto-provisioned)
+If you want to host outside Lovable, you will need:
+- A Supabase project (Postgres + Auth + Storage)
+- A Cloudflare Workers account (TanStack Start v1 targets Workers)
+- `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `LOVABLE_API_KEY` set as secrets in your hosting environment
 
-No external accounts or API keys to manage.
+Run the SQL migrations in `supabase/migrations/` in order against your Postgres database. Then deploy the built output (`dist/`) to your Workers-compatible host.
+
+## Admin Dashboard
+
+After signing in, navigate to **`/admin`** in the app.  
+
+- The **first user** can click **Claim admin rights** to become an admin.
+- Once claimed, no one else can self-claim; additional admins must be added by an existing admin via the database (`INSERT INTO user_roles (user_id, role) VALUES ('<uuid>', 'admin')`).
+
+In the admin dashboard you can:
+1. **Upload / Replace PDF** for each of the 30 books.
+2. **Generate quiz** — AI reads the PDF and creates 15 multiple-choice questions.
+3. **Delete PDF** if you want to re-upload a corrected version.
 
 ## First-run checklist
 
