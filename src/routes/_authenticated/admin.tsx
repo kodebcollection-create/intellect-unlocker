@@ -119,7 +119,7 @@ function Admin() {
                 <div className="font-mono text-sm text-muted-foreground">#{String(b.global_order).padStart(2, "0")}</div>
                 <div className="min-w-0">
                   {editing?.id === b.id ? (() => {
-                    const ed = editing;
+                    const ed = editing!;
                     return (
                       <div className="flex items-center gap-2">
                         <Input value={ed.title} onChange={(e) => setEditing({ id: ed.id, title: e.target.value })} autoFocus onKeyDown={(e) => e.key === "Enter" && saveTitle()} />
