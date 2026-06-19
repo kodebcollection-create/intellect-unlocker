@@ -172,6 +172,18 @@ export const deleteBookPdf = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Admin: update a book's title
+export const updateBookTitle = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) => z.object({ book_id: z.string().uuid(), title: z.string().min(1).max(200) }).parse(i))
+  .handler(async ({ data, context }) => {
+    const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
+    if (!roleRow) throw new Error("Forbidden");
+    const { error } = await context.supabase.from("books").update({ title: data.title }).eq("id", data.book_id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
 // Promote current user to admin (only if no admin exists). Bootstrap mechanism.
 export const claimAdminIfFirst = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
