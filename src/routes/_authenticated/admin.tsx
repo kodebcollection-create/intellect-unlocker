@@ -120,7 +120,7 @@ function Admin() {
                 <div className="min-w-0">
                   {editing?.id === b.id ? (
                     <div className="flex items-center gap-2">
-                      <Input value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} autoFocus onKeyDown={(e) => e.key === "Enter" && saveTitle()} />
+                      <Input value={editing.title} onChange={(e) => setEditing({ id: editing.id, title: e.target.value })} autoFocus onKeyDown={(e) => e.key === "Enter" && saveTitle()} />
                       <Button size="icon" variant="ghost" onClick={saveTitle}><Check className="h-4 w-4" /></Button>
                       <Button size="icon" variant="ghost" onClick={() => setEditing(null)}><X className="h-4 w-4" /></Button>
                     </div>
