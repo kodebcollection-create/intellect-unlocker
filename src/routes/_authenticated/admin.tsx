@@ -118,13 +118,16 @@ function Admin() {
               <div key={b.id} className="grid grid-cols-1 items-center gap-3 rounded-lg border border-border bg-card p-4 md:grid-cols-[60px_1fr_auto]">
                 <div className="font-mono text-sm text-muted-foreground">#{String(b.global_order).padStart(2, "0")}</div>
                 <div className="min-w-0">
-                  {editing?.id === b.id ? (
-                    <div className="flex items-center gap-2">
-                      <Input value={editing.title} onChange={(e) => setEditing({ id: editing.id, title: e.target.value })} autoFocus onKeyDown={(e) => e.key === "Enter" && saveTitle()} />
-                      <Button size="icon" variant="ghost" onClick={saveTitle}><Check className="h-4 w-4" /></Button>
-                      <Button size="icon" variant="ghost" onClick={() => setEditing(null)}><X className="h-4 w-4" /></Button>
-                    </div>
-                  ) : (
+                  {editing?.id === b.id ? (() => {
+                    const ed = editing;
+                    return (
+                      <div className="flex items-center gap-2">
+                        <Input value={ed.title} onChange={(e) => setEditing({ id: ed.id, title: e.target.value })} autoFocus onKeyDown={(e) => e.key === "Enter" && saveTitle()} />
+                        <Button size="icon" variant="ghost" onClick={saveTitle}><Check className="h-4 w-4" /></Button>
+                        <Button size="icon" variant="ghost" onClick={() => setEditing(null)}><X className="h-4 w-4" /></Button>
+                      </div>
+                    );
+                  })() : (
                     <div className="flex items-center gap-2">
                       <div className="font-display text-lg truncate">{b.title}</div>
                       <button onClick={() => setEditing({ id: b.id, title: b.title })} className="text-muted-foreground hover:text-foreground" title="Rename">
