@@ -240,11 +240,22 @@ function Reader() {
             </TabsContent>
 
             <TabsContent value="vocab" className="space-y-3 px-4">
+              <p className="text-xs text-muted-foreground">Tip: select a word anywhere on this page and click <em>Use selection</em> to capture it.</p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  const sel = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
+                  if (!sel) { toast.error("Highlight a word or phrase first"); return; }
+                  setVocabWord(sel);
+                }}
+              >Use selection</Button>
               <Label>Word</Label>
-              <Input value={vocabWord} onChange={(e) => setVocabWord(e.target.value)} />
-              <Label>Definition</Label>
-              <Textarea value={vocabDef} onChange={(e) => setVocabDef(e.target.value)} rows={3} />
-              <Button size="sm" onClick={saveVocab}>Add to vocabulary</Button>
+              <Input value={vocabWord} onChange={(e) => setVocabWord(e.target.value)} placeholder="e.g. reciprocity" />
+              <Label>Definition / context</Label>
+              <Textarea value={vocabDef} onChange={(e) => setVocabDef(e.target.value)} rows={3} placeholder="What it means, or the surrounding sentence…" />
+              <Button size="sm" onClick={saveVocab} className="w-full">Add to vocabulary</Button>
             </TabsContent>
           </Tabs>
         </aside>
