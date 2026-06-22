@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, lazy, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -13,15 +13,11 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bookmark, Highlighter, NotebookPen, ArrowLeft, ArrowRight, Settings2, BookMarked, ChevronLeft, GraduationCap, PanelRight, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
-import { Document, Page, pdfjs } from "react-pdf";
-import "react-pdf/dist/Page/AnnotationLayer.css";
-import "react-pdf/dist/Page/TextLayer.css";
 
-// Use bundled worker (works on mobile + desktop, no external CDN).
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
+// react-pdf/pdfjs-dist reference browser globals (DOMMatrix) at module scope.
+// Lazy-load so the module never evaluates during SSR/build prerender.
+const PdfViewer = lazy(() => import("@/components/pdf-viewer"));
+
 
 export const Route = createFileRoute("/_authenticated/read/$bookId")({
   ssr: false,
