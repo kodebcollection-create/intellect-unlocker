@@ -264,25 +264,16 @@ function Reader() {
         <div className="flex min-w-0 flex-col" style={{ fontSize }}>
           <div ref={containerRef} className="flex flex-1 justify-center overflow-auto bg-muted/30 p-2 sm:p-4">
             {fileProp ? (
-              <Document
-                file={fileProp}
-                onLoadSuccess={({ numPages: n }) => setNumPages(n)}
-                onLoadError={(err) => toast.error(`Failed to load PDF: ${err.message}`)}
-                loading={<div className="p-10 text-center text-sm text-muted-foreground">Loading PDF…</div>}
-                error={
-                  <div className="p-6 text-center text-sm">
-                    <p className="text-destructive">Could not render the PDF inline.</p>
-                    {pdfUrl && <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-primary underline">Open it in a new tab</a>}
-                  </div>
-                }
-              >
-                <Page
-                  pageNumber={page}
+              <Suspense fallback={<div className="p-10 text-center text-sm text-muted-foreground">Loading PDF…</div>}>
+                <PdfViewer
+                  file={fileProp}
+                  page={page}
                   width={Math.max(280, Math.min(containerWidth - 16, 900))}
-                  renderTextLayer
-                  renderAnnotationLayer={false}
+                  onLoadSuccess={(n) => setNumPages(n)}
+                  onLoadError={(msg) => toast.error(`Failed to load PDF: ${msg}`)}
+                  fallbackUrl={pdfUrl ?? undefined}
                 />
-              </Document>
+              </Suspense>
             ) : book && !book.pdf_path ? (
               <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
                 <BookMarked className="h-12 w-12 text-muted-foreground" />
