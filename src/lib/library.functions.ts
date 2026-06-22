@@ -99,6 +99,11 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
     const pdfRes = await fetch(signed.signedUrl);
     if (!pdfRes.ok) throw new Error("Failed to fetch PDF");
     const buf = new Uint8Array(await pdfRes.arrayBuffer());
+    // Gemini inline file limit is ~20MB; refuse early with a clear message.
+    const MAX = 19 * 1024 * 1024;
+    if (buf.length > MAX) {
+      throw new Error(`PDF is ${(buf.length / 1024 / 1024).toFixed(1)}MB. The AI quiz generator accepts PDFs up to ~19MB — please upload a smaller or compressed version of this book.`);
+    }
     let bin = ""; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
     const b64 = btoa(bin);
     const apiKey = process.env.LOVABLE_API_KEY;
@@ -116,14 +121,22 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
       response_format: { type: "json_object" },
     };
 
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-      body: JSON.stringify(body),
-    });
+    let aiRes: Response;
+    try {
+      aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
+        body: JSON.stringify(body),
+      });
+    } catch (e: any) {
+      throw new Error(`Could not reach the AI gateway: ${e?.message ?? "network error"}`);
+    }
     if (aiRes.status === 429) throw new Error("AI rate limit hit. Try again shortly.");
     if (aiRes.status === 402) throw new Error("AI credits exhausted. Please add credits in workspace settings.");
-    if (!aiRes.ok) throw new Error(`AI error ${aiRes.status}: ${await aiRes.text()}`);
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => "");
+      throw new Error(`AI error ${aiRes.status}: ${errBody.slice(0, 400) || aiRes.statusText}`);
+    }
     const j = await aiRes.json();
     const content = j.choices?.[0]?.message?.content ?? "{}";
     let parsed: { questions: Array<{ question: string; options: string[]; correct_index: number; explanation?: string }> };
