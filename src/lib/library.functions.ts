@@ -121,14 +121,22 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
       response_format: { type: "json_object" },
     };
 
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-      body: JSON.stringify(body),
-    });
+    let aiRes: Response;
+    try {
+      aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
+        body: JSON.stringify(body),
+      });
+    } catch (e: any) {
+      throw new Error(`Could not reach the AI gateway: ${e?.message ?? "network error"}`);
+    }
     if (aiRes.status === 429) throw new Error("AI rate limit hit. Try again shortly.");
     if (aiRes.status === 402) throw new Error("AI credits exhausted. Please add credits in workspace settings.");
-    if (!aiRes.ok) throw new Error(`AI error ${aiRes.status}: ${await aiRes.text()}`);
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => "");
+      throw new Error(`AI error ${aiRes.status}: ${errBody.slice(0, 400) || aiRes.statusText}`);
+    }
     const j = await aiRes.json();
     const content = j.choices?.[0]?.message?.content ?? "{}";
     let parsed: { questions: Array<{ question: string; options: string[]; correct_index: number; explanation?: string }> };
