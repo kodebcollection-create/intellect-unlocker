@@ -99,6 +99,11 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
     const pdfRes = await fetch(signed.signedUrl);
     if (!pdfRes.ok) throw new Error("Failed to fetch PDF");
     const buf = new Uint8Array(await pdfRes.arrayBuffer());
+    // Gemini inline file limit is ~20MB; refuse early with a clear message.
+    const MAX = 19 * 1024 * 1024;
+    if (buf.length > MAX) {
+      throw new Error(`PDF is ${(buf.length / 1024 / 1024).toFixed(1)}MB. The AI quiz generator accepts PDFs up to ~19MB — please upload a smaller or compressed version of this book.`);
+    }
     let bin = ""; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
     const b64 = btoa(bin);
     const apiKey = process.env.LOVABLE_API_KEY;
