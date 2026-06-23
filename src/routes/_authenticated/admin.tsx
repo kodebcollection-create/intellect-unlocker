@@ -3,10 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useServerFn } from "@tanstack/react-start";
-import { generateQuizFromPdf, setBookPdfPath, deleteBookPdf, claimAdminIfFirst, updateBookTitle } from "@/lib/library.functions";
+import { generateQuizFromPdf, setBookPdfPath, deleteBookPdf, claimAdminIfFirst, updateBookTitle, getAdminBooks } from "@/lib/library.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Upload, Trash2, Sparkles, ShieldCheck, Pencil, Check, X } from "lucide-react";
+import { Upload, Trash2, Sparkles, ShieldCheck, Pencil, Check, X, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/admin")({
@@ -20,6 +20,7 @@ function Admin() {
   const genQuiz = useServerFn(generateQuizFromPdf);
   const claim = useServerFn(claimAdminIfFirst);
   const rename = useServerFn(updateBookTitle);
+  const fetchAdminBooks = useServerFn(getAdminBooks);
   const [busyBookId, setBusyBookId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
 
@@ -32,12 +33,9 @@ function Admin() {
     },
   });
 
-  const { data: books, refetch } = useQuery({
+  const { data: books, refetch, isLoading: booksLoading, error: booksError } = useQuery({
     queryKey: ["admin-books"],
-    queryFn: async () => {
-      const { data } = await supabase.from("books").select("*, categories(name), quiz_questions(count)").order("global_order");
-      return data ?? [];
-    },
+    queryFn: async () => fetchAdminBooks(),
     enabled: !!me?.isAdmin,
   });
 
@@ -110,6 +108,19 @@ function Admin() {
         <h1 className="font-display text-4xl">Admin dashboard</h1>
         <p className="mt-1 text-muted-foreground">Upload a PDF for each book, rename books, then generate the AI quiz.</p>
       </div>
+      {booksLoading && <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">Loading books…</div>}
+      {booksError && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <div className="font-medium text-destructive">Could not load the book list</div>
+          <p className="mt-1 text-muted-foreground">The upload controls appear after the books load. Please retry.</p>
+          <Button className="mt-3" size="sm" variant="outline" onClick={() => refetch()}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />Retry
+          </Button>
+        </div>
+      )}
+      {!booksLoading && !booksError && (books ?? []).length === 0 && (
+        <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">No books found yet.</div>
+      )}
       {Object.entries(grouped).map(([cat, items]) => (
         <section key={cat} className="space-y-2">
           <h2 className="font-display text-xl text-primary">{cat}</h2>
