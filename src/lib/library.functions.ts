@@ -158,6 +158,37 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
     return { count: rows.length };
   });
 
+// Admin: list books and quiz counts without exposing quiz answer columns to the browser.
+export const getAdminBooks = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
+    if (!roleRow) throw new Error("Forbidden");
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: books, error } = await supabaseAdmin
+      .from("books")
+      .select("*, categories(name)")
+      .order("global_order");
+    if (error) throw new Error(error.message);
+
+    const ids = (books ?? []).map((b) => b.id);
+    const counts = new Map<string, number>();
+    await Promise.all(ids.map(async (id) => {
+      const { count, error: countError } = await supabaseAdmin
+        .from("quiz_questions")
+        .select("id", { count: "exact", head: true })
+        .eq("book_id", id);
+      if (countError) throw new Error(countError.message);
+      counts.set(id, count ?? 0);
+    }));
+
+    return (books ?? []).map((book) => ({
+      ...book,
+      quiz_questions: [{ count: counts.get(book.id) ?? 0 }],
+    }));
+  });
+
 // Admin: upload PDF (path generated client-side, stored via signed URL). Here we just record the path on the book.
 export const setBookPdfPath = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
