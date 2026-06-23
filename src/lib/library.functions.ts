@@ -239,3 +239,32 @@ export const claimAdminIfFirst = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { granted: true };
   });
+
+// Admin: create a new book row in a category. global_order/display_order auto-computed.
+export const createBook = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) => z.object({
+    category_id: z.string().uuid(),
+    title: z.string().min(1).max(200),
+    pdf_path: z.string().optional(),
+  }).parse(i))
+  .handler(async ({ data, context }) => {
+    const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
+    if (!roleRow) throw new Error("Forbidden");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: maxGlobal } = await supabaseAdmin.from("books").select("global_order").order("global_order", { ascending: false }).limit(1).maybeSingle();
+    const { data: maxDisp } = await supabaseAdmin.from("books").select("display_order").eq("category_id", data.category_id).order("display_order", { ascending: false }).limit(1).maybeSingle();
+    const nextGlobal = (maxGlobal?.global_order ?? 0) + 1;
+    const nextDisp = (maxDisp?.display_order ?? 0) + 1;
+
+    const { data: row, error } = await supabaseAdmin.from("books").insert({
+      category_id: data.category_id,
+      title: data.title,
+      pdf_path: data.pdf_path ?? null,
+      global_order: nextGlobal,
+      display_order: nextDisp,
+    }).select("id").single();
+    if (error) throw new Error(error.message);
+    return { id: row.id };
+  });
