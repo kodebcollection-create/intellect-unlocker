@@ -270,7 +270,7 @@ function Reader() {
                   page={page}
                   width={Math.max(280, Math.min(containerWidth - 16, 900))}
                   onLoadSuccess={(n) => setNumPages(n)}
-                  onLoadError={(msg) => toast.error(`Failed to load PDF: ${msg}`)}
+                  onLoadError={() => { /* inline error UI handled in PdfViewer */ }}
                   fallbackUrl={pdfUrl ?? undefined}
                 />
               </Suspense>
