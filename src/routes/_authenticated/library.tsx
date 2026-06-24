@@ -16,7 +16,8 @@ function Library() {
       const uid = u.user!.id;
       const [{ data: cats }, { data: books }, { data: progress }] = await Promise.all([
         supabase.from("categories").select("*").order("display_order"),
-        supabase.from("books").select("*").order("global_order"),
+        // Only published books appear in the library; drafts stay admin-only.
+        supabase.from("books").select("*").eq("published", true).order("global_order"),
         supabase.from("user_progress").select("*").eq("user_id", uid),
       ]);
       return { cats: cats ?? [], books: books ?? [], progress: progress ?? [] };

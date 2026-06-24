@@ -86,14 +86,21 @@ function Quiz() {
         <div className="space-y-3">
           {questions.map((q: any, i: number) => {
             const d = result.detailed.find((x: any) => x.question_id === q.id);
+            const showAnswers = result.passed;
             return (
               <div key={q.id} className="rounded-lg border border-border bg-card p-4">
                 <div className="flex items-start gap-2">
                   {d.correct ? <CheckCircle2 className="mt-1 h-4 w-4 text-primary" /> : <XCircle className="mt-1 h-4 w-4 text-destructive" />}
                   <div className="flex-1">
                     <p className="font-medium">{i + 1}. {q.question}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Correct: {q.options[d.correct_index]}</p>
-                    {d.explanation && <p className="mt-2 text-xs italic text-muted-foreground">{d.explanation}</p>}
+                    {showAnswers ? (
+                      <>
+                        <p className="mt-1 text-sm text-muted-foreground">Correct: {q.options[d.correct_index]}</p>
+                        {d.explanation && <p className="mt-2 text-xs italic text-muted-foreground">{d.explanation}</p>}
+                      </>
+                    ) : (
+                      <p className="mt-1 text-xs text-muted-foreground">{d.correct ? "Correct" : "Incorrect — re-read this section and try again."}</p>
+                    )}
                   </div>
                 </div>
               </div>
