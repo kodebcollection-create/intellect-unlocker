@@ -18,7 +18,7 @@ function Library() {
         supabase.from("categories").select("*").order("display_order"),
         // Only published books appear in the library; drafts stay admin-only.
         supabase.from("books").select("*").eq("published", true).order("global_order"),
-        supabase.from("user_progress").select("*").eq("uid", uid).abortSignal ? supabase.from("user_progress").select("*").eq("user_id", uid) : supabase.from("user_progress").select("*").eq("user_id", uid),
+        supabase.from("user_progress").select("*").eq("user_id", uid),
       ]);
       return { cats: cats ?? [], books: books ?? [], progress: progress ?? [] };
     },
