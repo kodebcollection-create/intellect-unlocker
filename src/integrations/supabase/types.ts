@@ -14,6 +14,41 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_activity_log: {
+        Row: {
+          action: string
+          actor_user_id: string | null
+          book_id: string | null
+          created_at: string
+          id: string
+          metadata: Json
+        }
+        Insert: {
+          action: string
+          actor_user_id?: string | null
+          book_id?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string | null
+          book_id?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_activity_log_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookmarks: {
         Row: {
           book_id: string
@@ -59,7 +94,9 @@ export type Database = {
           display_order: number
           global_order: number
           id: string
+          page_count: number | null
           pdf_path: string | null
+          published: boolean
           title: string
           total_pages: number | null
         }
@@ -72,7 +109,9 @@ export type Database = {
           display_order: number
           global_order: number
           id?: string
+          page_count?: number | null
           pdf_path?: string | null
+          published?: boolean
           title: string
           total_pages?: number | null
         }
@@ -85,7 +124,9 @@ export type Database = {
           display_order?: number
           global_order?: number
           id?: string
+          page_count?: number | null
           pdf_path?: string | null
+          published?: boolean
           title?: string
           total_pages?: number | null
         }
