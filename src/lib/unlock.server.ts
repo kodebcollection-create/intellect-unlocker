@@ -54,7 +54,7 @@ export async function logAdminActivity(params: {
       actor_user_id: params.actorUserId,
       action: params.action,
       book_id: params.bookId ?? null,
-      metadata: params.metadata ?? {},
+      metadata: (params.metadata ?? {}) as never,
     });
   } catch {
     // swallow — telemetry only

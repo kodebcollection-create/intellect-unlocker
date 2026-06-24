@@ -235,7 +235,7 @@ export const setBookPdfPath = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
     if (!roleRow) throw new Error("Forbidden");
-    const update: Record<string, unknown> = { pdf_path: data.pdf_path };
+    const update: { pdf_path: string; page_count?: number } = { pdf_path: data.pdf_path };
     if (data.page_count) update.page_count = data.page_count;
     const { error } = await context.supabase.from("books").update(update).eq("id", data.book_id);
     if (error) throw new Error(error.message);
