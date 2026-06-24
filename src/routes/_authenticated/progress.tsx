@@ -63,7 +63,7 @@ function ProgressPage() {
                   </span>
                 </button>
                 {isOpen && (
-                  <AttemptReview bookId={a.book_id} detailed={detailed} />
+                  <AttemptReview bookId={a.book_id} detailed={detailed} passed={!!a.passed} />
                 )}
               </div>
             );
@@ -74,7 +74,7 @@ function ProgressPage() {
   );
 }
 
-function AttemptReview({ bookId, detailed }: { bookId: string; detailed: any[] }) {
+function AttemptReview({ bookId, detailed, passed }: { bookId: string; detailed: any[]; passed: boolean }) {
   const { data: questions } = useQuery({
     queryKey: ["review-questions", bookId],
     queryFn: async () => {
@@ -90,10 +90,15 @@ function AttemptReview({ bookId, detailed }: { bookId: string; detailed: any[] }
   const qMap = new Map(questions.map((q: any) => [q.id, q]));
   return (
     <div className="space-y-2 border-t border-border p-3">
+      {!passed && (
+        <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+          Correct answers and explanations are hidden until you pass this quiz. Re-read the book and try again.
+        </p>
+      )}
       {detailed.map((d, i) => {
         const q: any = qMap.get(d.question_id);
         if (!q) return null;
-        const correctIdx = d.correct_index ?? -1;
+        const correctIdx = passed ? (d.correct_index ?? -1) : -1;
         return (
           <div key={d.question_id} className="rounded-md border border-border bg-background p-3 text-sm">
             <div className="flex items-start gap-2">
@@ -103,22 +108,22 @@ function AttemptReview({ bookId, detailed }: { bookId: string; detailed: any[] }
                 <ul className="mt-2 space-y-1">
                   {q.options.map((opt: string, idx: number) => {
                     const youPicked = idx === d.choice;
-                    const isCorrect = idx === correctIdx;
+                    const isCorrect = passed && idx === correctIdx;
                     return (
                       <li
                         key={idx}
                         className={`rounded px-2 py-1 text-xs ${
                           isCorrect ? "bg-primary/15 text-primary"
-                          : youPicked ? "bg-destructive/15 text-destructive"
+                          : youPicked ? (passed ? "bg-destructive/15 text-destructive" : "bg-muted text-foreground")
                           : "text-muted-foreground"
                         }`}
                       >
-                        {isCorrect && "✓ "}{youPicked && !isCorrect && "✗ Your answer: "}{opt}
+                        {isCorrect && "✓ "}{youPicked && !isCorrect && "Your answer: "}{opt}
                       </li>
                     );
                   })}
                 </ul>
-                {d.explanation && <p className="mt-2 text-xs italic text-muted-foreground">{d.explanation}</p>}
+                {passed && d.explanation && <p className="mt-2 text-xs italic text-muted-foreground">{d.explanation}</p>}
               </div>
             </div>
           </div>

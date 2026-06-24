@@ -91,9 +91,9 @@ function Reader() {
     if (!book) return;
     if (progress?.current_page) setPage(progress.current_page);
     if (book.pdf_path) {
-      fetchPdfUrl({ data: { path: book.pdf_path } }).then(r => setPdfUrl(r.url)).catch((e) => toast.error(e.message));
+      fetchPdfUrl({ data: { book_id: bookId } }).then(r => setPdfUrl(r.url)).catch((e) => toast.error(e.message));
     }
-  }, [book, progress, fetchPdfUrl]);
+  }, [book, progress, fetchPdfUrl, bookId]);
 
   // Track viewer width for responsive PDF sizing.
   useEffect(() => {
