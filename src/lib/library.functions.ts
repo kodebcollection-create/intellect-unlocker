@@ -17,12 +17,12 @@ export const getPdfUrl = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: book, error: bErr } = await supabaseAdmin
       .from("books").select("pdf_path").eq("id", data.book_id).maybeSingle();
-    if (bErr) throw new Error(bErr.message);
+    if (bErr) throw new Error(safeError(bErr));
     if (!book?.pdf_path) throw new Error("This book has no PDF uploaded yet.");
 
     const { data: signed, error } = await context.supabase.storage
       .from("book-pdfs").createSignedUrl(book.pdf_path, 3600);
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
     return { url: signed.signedUrl };
   });
 
@@ -44,7 +44,7 @@ export const saveProgress = createServerFn({ method: "POST" })
       total_pages: data.total_pages ?? null,
       last_read_at: new Date().toISOString(),
     }, { onConflict: "user_id,book_id" });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
     return { ok: true };
   });
 
@@ -62,7 +62,7 @@ export const markBookComplete = createServerFn({ method: "POST" })
       current_page: 1,
       last_read_at: new Date().toISOString(),
     }, { onConflict: "user_id,book_id", ignoreDuplicates: false });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
     return { ok: true };
   });
 
@@ -83,7 +83,7 @@ export const submitQuiz = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: qs, error } = await supabaseAdmin
       .from("quiz_questions").select("id, book_id, correct_index, explanation").in("id", ids);
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
 
     // Defense-in-depth: reject any submitted question that doesn't belong to this book.
     const map = new Map(qs.filter(q => q.book_id === data.book_id).map(q => [q.id, q]));
@@ -128,7 +128,7 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
     const { data: book, error: bErr } = await context.supabase.from("books").select("id, title, pdf_path").eq("id", data.book_id).single();
     if (bErr || !book?.pdf_path) throw new Error("Book has no PDF uploaded");
     const { data: signed, error: sErr } = await context.supabase.storage.from("book-pdfs").createSignedUrl(book.pdf_path, 600);
-    if (sErr) throw new Error(sErr.message);
+    if (sErr) throw new Error(safeError(sErr));
     const pdfRes = await fetch(signed.signedUrl);
     if (!pdfRes.ok) throw new Error("Failed to fetch PDF");
     const buf = new Uint8Array(await pdfRes.arrayBuffer());
@@ -185,7 +185,7 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
       display_order: i,
     }));
     const { error: insErr } = await context.supabase.from("quiz_questions").insert(rows);
-    if (insErr) throw new Error(insErr.message);
+    if (insErr) throw new Error(safeError(insErr));
 
     const { logAdminActivity } = await import("@/lib/unlock.server");
     await logAdminActivity({ actorUserId: context.userId, action: "generate_quiz", bookId: data.book_id, metadata: { count: rows.length } });
@@ -205,7 +205,7 @@ export const getAdminBooks = createServerFn({ method: "GET" })
       .from("books")
       .select("*, categories(name)")
       .order("global_order");
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
 
     const ids = (books ?? []).map((b) => b.id);
     const counts = new Map<string, number>();
@@ -214,7 +214,7 @@ export const getAdminBooks = createServerFn({ method: "GET" })
         .from("quiz_questions")
         .select("id", { count: "exact", head: true })
         .eq("book_id", id);
-      if (countError) throw new Error(countError.message);
+      if (countError) throw new Error(safeError(countError));
       counts.set(id, count ?? 0);
     }));
 
@@ -239,7 +239,7 @@ export const setBookPdfPath = createServerFn({ method: "POST" })
     const update: { pdf_path: string; page_count?: number } = { pdf_path: data.pdf_path };
     if (data.page_count) update.page_count = data.page_count;
     const { error } = await context.supabase.from("books").update(update).eq("id", data.book_id);
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
 
     const { logAdminActivity } = await import("@/lib/unlock.server");
     await logAdminActivity({
@@ -289,7 +289,7 @@ export const deleteBook = createServerFn({ method: "POST" })
     }
     await supabaseAdmin.from("quiz_questions").delete().eq("book_id", data.book_id);
     const { error } = await supabaseAdmin.from("books").delete().eq("id", data.book_id);
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
 
     const { logAdminActivity } = await import("@/lib/unlock.server");
     await logAdminActivity({
@@ -313,7 +313,7 @@ export const setBookPublished = createServerFn({ method: "POST" })
     const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
     if (!roleRow) throw new Error("Forbidden");
     const { error } = await context.supabase.from("books").update({ published: data.published }).eq("id", data.book_id);
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
 
     const { logAdminActivity } = await import("@/lib/unlock.server");
     await logAdminActivity({
@@ -332,7 +332,7 @@ export const updateBookTitle = createServerFn({ method: "POST" })
     const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
     if (!roleRow) throw new Error("Forbidden");
     const { error } = await context.supabase.from("books").update({ title: data.title }).eq("id", data.book_id);
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
     return { ok: true };
   });
 
@@ -344,7 +344,7 @@ export const claimAdminIfFirst = createServerFn({ method: "POST" })
     const { count } = await supabaseAdmin.from("user_roles").select("*", { count: "exact", head: true }).eq("role", "admin");
     if ((count ?? 0) > 0) return { granted: false, reason: "Admin already exists" };
     const { error } = await supabaseAdmin.from("user_roles").insert({ user_id: context.userId, role: "admin" });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
     return { granted: true };
   });
 
@@ -374,7 +374,7 @@ export const createBook = createServerFn({ method: "POST" })
       display_order: nextDisp,
       published: false, // always start as draft
     }).select("id").single();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
 
     const { logAdminActivity } = await import("@/lib/unlock.server");
     await logAdminActivity({
@@ -398,7 +398,7 @@ export const getAdminActivity = createServerFn({ method: "GET" })
       .select("id, actor_user_id, action, book_id, metadata, created_at")
       .order("created_at", { ascending: false })
       .limit(100);
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(safeError(error));
 
     const actorIds = Array.from(new Set((data ?? []).map((r) => r.actor_user_id).filter(Boolean) as string[]));
     const bookIds = Array.from(new Set((data ?? []).map((r) => r.book_id).filter(Boolean) as string[]));
