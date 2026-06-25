@@ -160,14 +160,17 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
         headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
         body: JSON.stringify(body),
       });
-    } catch (e: any) {
-      throw new Error(`Could not reach the AI gateway: ${e?.message ?? "network error"}`);
+    } catch (e: unknown) {
+      throw new Error(safeError(e as { message?: string }, "Could not reach the AI service. Please try again."));
     }
     if (aiRes.status === 429) throw new Error("AI rate limit hit. Try again shortly.");
     if (aiRes.status === 402) throw new Error("AI credits exhausted. Please add credits in workspace settings.");
     if (!aiRes.ok) {
+      // Log the raw upstream body server-side only.
       const errBody = await aiRes.text().catch(() => "");
-      throw new Error(`AI error ${aiRes.status}: ${errBody.slice(0, 400) || aiRes.statusText}`);
+      // eslint-disable-next-line no-console
+      console.error("[ai-gateway-error]", aiRes.status, errBody.slice(0, 1000));
+      throw new Error("The AI service returned an error. Please try again.");
     }
     const j = await aiRes.json();
     const content = j.choices?.[0]?.message?.content ?? "{}";
