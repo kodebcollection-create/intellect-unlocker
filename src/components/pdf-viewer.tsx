@@ -7,14 +7,15 @@ import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, ExternalLink, AlertTriangle } from "lucide-react";
-// Bundle the pdfjs worker locally via Vite. The `?url` suffix yields a hashed
-// asset URL served from the app's own origin — no CDN, no CORS, no version
-// mismatch. pdfjs-dist is pinned in package.json to the exact version react-pdf
-// bundles so the API and worker versions match 1:1.
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+// Bundle the pdfjs worker as a real Worker via Vite's `?worker` suffix. This
+// guarantees the worker module and the pdfjs API come from the SAME installed
+// pdfjs-dist version (pinned in package.json to match react-pdf 1:1), so the
+// "API version X does not match Worker version Y" error can't recur — even if
+// the browser has a stale cached worker URL from a previous build.
+import PdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?worker";
 
-if (typeof window !== "undefined") {
-  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+if (typeof window !== "undefined" && !pdfjs.GlobalWorkerOptions.workerPort) {
+  pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
 }
 
 export default function PdfViewer({

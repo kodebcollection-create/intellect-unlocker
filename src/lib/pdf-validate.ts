@@ -1,7 +1,7 @@
 // Client-only helper to validate a PDF before uploading: parses it with pdfjs
 // to extract the page count and reject encrypted/corrupted files.
 // Imports pdfjs lazily so this never runs at SSR module-scope.
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import PdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?worker";
 
 export type PdfValidationResult =
   | { ok: true; numPages: number }
@@ -10,8 +10,8 @@ export type PdfValidationResult =
 export async function validatePdfFile(file: File): Promise<PdfValidationResult> {
   try {
     const pdfjs: any = await import("pdfjs-dist");
-    if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+    if (!pdfjs.GlobalWorkerOptions.workerPort) {
+      pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
     }
     const buf = await file.arrayBuffer();
     const task = pdfjs.getDocument({
