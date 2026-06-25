@@ -2,6 +2,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { safeError } from "@/lib/safe-error";
 
 // Get a signed URL for a book's PDF (valid 1 hour). User-scoped and unlock-gated.
 // Takes the book_id (not the raw storage path) so the server can verify both the
