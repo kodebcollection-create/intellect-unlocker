@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useServerFn } from "@tanstack/react-start";
+import { getLibraryData } from "@/lib/library.functions";
 import { Lock, CheckCircle2, BookOpen, Circle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
@@ -9,21 +10,10 @@ export const Route = createFileRoute("/_authenticated/library")({
 });
 
 function Library() {
+  const fetchLibraryData = useServerFn(getLibraryData);
   const { data, isLoading } = useQuery({
     queryKey: ["library"],
-    queryFn: async () => {
-      const { data: u } = await supabase.auth.getUser();
-      const uid = u.user!.id;
-      const [{ data: cats }, { data: books }, { data: progress }] = await Promise.all([
-        supabase.from("categories").select("*").order("display_order"),
-        // Only published books appear in the library; drafts stay admin-only.
-        // pdf_path is intentionally omitted — it's revoked from authenticated
-        // Data API reads; use has_pdf for UI checks and getPdfUrl for the URL.
-        supabase.from("books").select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages").eq("published", true).order("global_order"),
-        supabase.from("user_progress").select("*").eq("user_id", uid),
-      ]);
-      return { cats: cats ?? [], books: books ?? [], progress: progress ?? [] };
-    },
+    queryFn: async () => fetchLibraryData(),
   });
 
   if (isLoading || !data) return <div className="text-muted-foreground">Loading library…</div>;
