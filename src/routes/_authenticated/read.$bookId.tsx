@@ -47,7 +47,9 @@ function Reader() {
   const { data: book } = useQuery({
     queryKey: ["book", bookId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("books").select("*, categories(name)").eq("id", bookId).single();
+      // pdf_path is revoked from client Data API reads — use has_pdf for UI checks
+      // and call getPdfUrl (unlock-gated server fn) to retrieve the signed URL.
+      const { data, error } = await supabase.from("books").select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages, categories(name)").eq("id", bookId).single();
       if (error) throw error;
       return data;
     },
@@ -90,7 +92,7 @@ function Reader() {
   useEffect(() => {
     if (!book) return;
     if (progress?.current_page) setPage(progress.current_page);
-    if (book.pdf_path) {
+    if (book.has_pdf) {
       fetchPdfUrl({ data: { book_id: bookId } }).then(r => setPdfUrl(r.url)).catch((e) => toast.error(e.message));
     }
   }, [book, progress, fetchPdfUrl, bookId]);
@@ -274,7 +276,7 @@ function Reader() {
                   fallbackUrl={pdfUrl ?? undefined}
                 />
               </Suspense>
-            ) : book && !book.pdf_path ? (
+            ) : book && !book.has_pdf ? (
               <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
                 <BookMarked className="h-12 w-12 text-muted-foreground" />
                 <h2 className="mt-4 font-display text-2xl">No PDF uploaded yet</h2>

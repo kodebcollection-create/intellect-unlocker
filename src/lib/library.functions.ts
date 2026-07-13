@@ -88,6 +88,10 @@ export const submitQuiz = createServerFn({ method: "POST" })
     // Defense-in-depth: reject any submitted question that doesn't belong to this book.
     const map = new Map(qs.filter(q => q.book_id === data.book_id).map(q => [q.id, q]));
     let score = 0;
+    // fullDetailed is used only in-memory to return per-question feedback to the
+    // client when the user passes. It is NEVER persisted with the answer key —
+    // the row stored in quiz_attempts.answers is stripped to {question_id, choice, correct}
+    // so users cannot extract correct_index/explanation from their own attempt history.
     const fullDetailed = data.answers.map(a => {
       const q = map.get(a.question_id);
       const correct = !!q && q.correct_index === a.choice;
@@ -103,11 +107,17 @@ export const submitQuiz = createServerFn({ method: "POST" })
     const total = data.answers.length;
     const passed = total > 0 && score / total >= 0.7;
 
-    // Store the full detail server-side (admin can review later); pass nothing privileged to the client on a fail.
+    // Persist only the sanitized shape — no correct_index, no explanation.
+    const persistedAnswers = fullDetailed.map(({ question_id, choice, correct }) => ({
+      question_id, choice, correct,
+    }));
     await context.supabase.from("quiz_attempts").insert({
-      user_id: context.userId, book_id: data.book_id, score, total, passed, answers: fullDetailed,
+      user_id: context.userId, book_id: data.book_id, score, total, passed,
+      answers: persistedAnswers,
     });
-    await context.supabase.from("user_progress").upsert({
+    // user_progress.quiz_passed is guarded by a DB trigger that forces it to false
+    // for any non-service_role writer. Use supabaseAdmin so a passed quiz can flip it.
+    await supabaseAdmin.from("user_progress").upsert({
       user_id: context.userId, book_id: data.book_id, completed: true, quiz_passed: passed,
       last_read_at: new Date().toISOString(),
     }, { onConflict: "user_id,book_id" });

@@ -93,6 +93,7 @@ export type Database = {
           description: string | null
           display_order: number
           global_order: number
+          has_pdf: boolean | null
           id: string
           page_count: number | null
           pdf_path: string | null
@@ -108,6 +109,7 @@ export type Database = {
           description?: string | null
           display_order: number
           global_order: number
+          has_pdf?: boolean | null
           id?: string
           page_count?: number | null
           pdf_path?: string | null
@@ -123,6 +125,7 @@ export type Database = {
           description?: string | null
           display_order?: number
           global_order?: number
+          has_pdf?: boolean | null
           id?: string
           page_count?: number | null
           pdf_path?: string | null

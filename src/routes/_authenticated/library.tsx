@@ -17,7 +17,9 @@ function Library() {
       const [{ data: cats }, { data: books }, { data: progress }] = await Promise.all([
         supabase.from("categories").select("*").order("display_order"),
         // Only published books appear in the library; drafts stay admin-only.
-        supabase.from("books").select("*").eq("published", true).order("global_order"),
+        // pdf_path is intentionally omitted — it's revoked from authenticated
+        // Data API reads; use has_pdf for UI checks and getPdfUrl for the URL.
+        supabase.from("books").select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages").eq("published", true).order("global_order"),
         supabase.from("user_progress").select("*").eq("user_id", uid),
       ]);
       return { cats: cats ?? [], books: books ?? [], progress: progress ?? [] };
