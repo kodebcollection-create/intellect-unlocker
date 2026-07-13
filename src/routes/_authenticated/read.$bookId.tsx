@@ -92,7 +92,7 @@ function Reader() {
   useEffect(() => {
     if (!book) return;
     if (progress?.current_page) setPage(progress.current_page);
-    if (book.pdf_path) {
+    if (book.has_pdf) {
       fetchPdfUrl({ data: { book_id: bookId } }).then(r => setPdfUrl(r.url)).catch((e) => toast.error(e.message));
     }
   }, [book, progress, fetchPdfUrl, bookId]);
