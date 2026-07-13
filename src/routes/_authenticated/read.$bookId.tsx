@@ -276,7 +276,7 @@ function Reader() {
                   fallbackUrl={pdfUrl ?? undefined}
                 />
               </Suspense>
-            ) : book && !book.pdf_path ? (
+            ) : book && !book.has_pdf ? (
               <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
                 <BookMarked className="h-12 w-12 text-muted-foreground" />
                 <h2 className="mt-4 font-display text-2xl">No PDF uploaded yet</h2>
