@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useServerFn } from "@tanstack/react-start";
+import { getProgressPageData, getReviewQuestions } from "@/lib/library.functions";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronRight, CheckCircle2, XCircle } from "lucide-react";
@@ -12,17 +13,10 @@ export const Route = createFileRoute("/_authenticated/progress")({
 
 function ProgressPage() {
   const [openId, setOpenId] = useState<string | null>(null);
+  const fetchProgressPageData = useServerFn(getProgressPageData);
   const { data } = useQuery({
     queryKey: ["progress-page"],
-    queryFn: async () => {
-      const { data: u } = await supabase.auth.getUser();
-      const [{ data: books }, { data: progress }, { data: attempts }] = await Promise.all([
-        supabase.from("books").select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages").order("global_order"),
-        supabase.from("user_progress").select("*").eq("user_id", u.user!.id),
-        supabase.from("quiz_attempts").select("*").eq("user_id", u.user!.id).order("created_at", { ascending: false }),
-      ]);
-      return { books: books ?? [], progress: progress ?? [], attempts: attempts ?? [] };
-    },
+    queryFn: async () => fetchProgressPageData(),
   });
   if (!data) return <div className="text-muted-foreground">Loading…</div>;
   const passed = data.progress.filter((p: any) => p.quiz_passed).length;
@@ -75,16 +69,10 @@ function ProgressPage() {
 }
 
 function AttemptReview({ bookId, detailed, passed }: { bookId: string; detailed: any[]; passed: boolean }) {
+  const fetchReviewQuestions = useServerFn(getReviewQuestions);
   const { data: questions } = useQuery({
     queryKey: ["review-questions", bookId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("quiz_questions")
-        .select("id, question, options, display_order")
-        .eq("book_id", bookId)
-        .order("display_order");
-      return data ?? [];
-    },
+    queryFn: async () => fetchReviewQuestions({ data: { book_id: bookId } }),
   });
   if (!questions) return <div className="px-3 pb-3 text-xs text-muted-foreground">Loading review…</div>;
   const qMap = new Map(questions.map((q: any) => [q.id, q]));

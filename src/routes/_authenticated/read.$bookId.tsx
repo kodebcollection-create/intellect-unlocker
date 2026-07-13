@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef, useMemo, lazy, Suspense } fro
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { getPdfUrl, saveProgress, markBookComplete } from "@/lib/library.functions";
+import { getPdfUrl, saveProgress, markBookComplete, getBookDetails } from "@/lib/library.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +29,7 @@ function Reader() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const fetchPdfUrl = useServerFn(getPdfUrl);
+  const fetchBookDetails = useServerFn(getBookDetails);
   const persistProgress = useServerFn(saveProgress);
   const finishBook = useServerFn(markBookComplete);
 
@@ -46,13 +47,7 @@ function Reader() {
 
   const { data: book } = useQuery({
     queryKey: ["book", bookId],
-    queryFn: async () => {
-      // pdf_path is revoked from client Data API reads — use has_pdf for UI checks
-      // and call getPdfUrl (unlock-gated server fn) to retrieve the signed URL.
-      const { data, error } = await supabase.from("books").select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages, categories(name)").eq("id", bookId).single();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: async () => fetchBookDetails({ data: { book_id: bookId } }),
   });
 
   const { data: progress } = useQuery({

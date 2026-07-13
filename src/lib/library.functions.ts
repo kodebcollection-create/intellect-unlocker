@@ -4,6 +4,108 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 import { safeError } from "@/lib/safe-error";
 
+// User library list. Uses the server to return only safe, published book fields
+// so the client never needs direct access to the private pdf_path column.
+export const getLibraryData = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const [catsResult, booksResult, progressResult] = await Promise.all([
+      supabaseAdmin.from("categories").select("id, name, description, display_order, created_at").order("display_order"),
+      supabaseAdmin
+        .from("books")
+        .select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages")
+        .eq("published", true)
+        .order("global_order"),
+      supabaseAdmin.from("user_progress").select("*").eq("user_id", context.userId),
+    ]);
+
+    if (catsResult.error) throw new Error(safeError(catsResult.error));
+    if (booksResult.error) throw new Error(safeError(booksResult.error));
+    if (progressResult.error) throw new Error(safeError(progressResult.error));
+
+    return {
+      cats: catsResult.data ?? [],
+      books: booksResult.data ?? [],
+      progress: progressResult.data ?? [],
+    };
+  });
+
+export const getBookDetails = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) => z.object({ book_id: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    let query = supabaseAdmin
+      .from("books")
+      .select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages, categories(name)")
+      .eq("id", data.book_id);
+    if (!isAdmin) query = query.eq("published", true);
+    const { data: book, error } = await query.maybeSingle();
+    if (error) throw new Error(safeError(error));
+    if (!book) throw new Error("Book not found");
+    return book;
+  });
+
+export const getQuizData = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) => z.object({ book_id: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    const { assertBookUnlocked } = await import("@/lib/unlock.server");
+    await assertBookUnlocked(context.userId, data.book_id);
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const [bookResult, questionsResult] = await Promise.all([
+      supabaseAdmin.from("books").select("id, title").eq("id", data.book_id).eq("published", true).maybeSingle(),
+      supabaseAdmin
+        .from("quiz_questions")
+        .select("id, book_id, question, options, display_order")
+        .eq("book_id", data.book_id)
+        .order("display_order"),
+    ]);
+    if (bookResult.error) throw new Error(safeError(bookResult.error));
+    if (questionsResult.error) throw new Error(safeError(questionsResult.error));
+    return { book: bookResult.data, questions: questionsResult.data ?? [] };
+  });
+
+export const getProgressPageData = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const booksQuery = supabaseAdmin
+      .from("books")
+      .select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages")
+      .order("global_order");
+    const [booksResult, progressResult, attemptsResult] = await Promise.all([
+      isAdmin ? booksQuery : booksQuery.eq("published", true),
+      supabaseAdmin.from("user_progress").select("*").eq("user_id", context.userId),
+      supabaseAdmin.from("quiz_attempts").select("*").eq("user_id", context.userId).order("created_at", { ascending: false }),
+    ]);
+    if (booksResult.error) throw new Error(safeError(booksResult.error));
+    if (progressResult.error) throw new Error(safeError(progressResult.error));
+    if (attemptsResult.error) throw new Error(safeError(attemptsResult.error));
+    return { books: booksResult.data ?? [], progress: progressResult.data ?? [], attempts: attemptsResult.data ?? [] };
+  });
+
+export const getReviewQuestions = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) => z.object({ book_id: z.string().uuid() }).parse(i))
+  .handler(async ({ data, context }) => {
+    const { assertBookUnlocked } = await import("@/lib/unlock.server");
+    await assertBookUnlocked(context.userId, data.book_id);
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: questions, error } = await supabaseAdmin
+      .from("quiz_questions")
+      .select("id, question, options, display_order")
+      .eq("book_id", data.book_id)
+      .order("display_order");
+    if (error) throw new Error(safeError(error));
+    return questions ?? [];
+  });
+
 // Get a signed URL for a book's PDF (valid 1 hour). User-scoped and unlock-gated.
 // Takes the book_id (not the raw storage path) so the server can verify both the
 // book is published AND the user has unlocked it before issuing a URL.
@@ -20,7 +122,7 @@ export const getPdfUrl = createServerFn({ method: "POST" })
     if (bErr) throw new Error(safeError(bErr));
     if (!book?.pdf_path) throw new Error("This book has no PDF uploaded yet.");
 
-    const { data: signed, error } = await context.supabase.storage
+    const { data: signed, error } = await supabaseAdmin.storage
       .from("book-pdfs").createSignedUrl(book.pdf_path, 3600);
     if (error) throw new Error(safeError(error));
     return { url: signed.signedUrl };
@@ -135,9 +237,10 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
     if (!roleRow) throw new Error("Forbidden");
-    const { data: book, error: bErr } = await context.supabase.from("books").select("id, title, pdf_path").eq("id", data.book_id).single();
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: book, error: bErr } = await supabaseAdmin.from("books").select("id, title, pdf_path").eq("id", data.book_id).single();
     if (bErr || !book?.pdf_path) throw new Error("Book has no PDF uploaded");
-    const { data: signed, error: sErr } = await context.supabase.storage.from("book-pdfs").createSignedUrl(book.pdf_path, 600);
+    const { data: signed, error: sErr } = await supabaseAdmin.storage.from("book-pdfs").createSignedUrl(book.pdf_path, 600);
     if (sErr) throw new Error(safeError(sErr));
     const pdfRes = await fetch(signed.signedUrl);
     if (!pdfRes.ok) throw new Error("Failed to fetch PDF");
@@ -271,10 +374,11 @@ export const deleteBookPdf = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: roleRow } = await context.supabase.from("user_roles").select("role").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
     if (!roleRow) throw new Error("Forbidden");
-    const { data: b } = await context.supabase.from("books").select("pdf_path").eq("id", data.book_id).single();
-    if (b?.pdf_path) await context.supabase.storage.from("book-pdfs").remove([b.pdf_path]);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: b } = await supabaseAdmin.from("books").select("pdf_path").eq("id", data.book_id).single();
+    if (b?.pdf_path) await supabaseAdmin.storage.from("book-pdfs").remove([b.pdf_path]);
     // Unpublishing once the file is gone keeps it out of the library.
-    await context.supabase.from("books").update({ pdf_path: null, page_count: null, published: false }).eq("id", data.book_id);
+    await supabaseAdmin.from("books").update({ pdf_path: null, page_count: null, published: false }).eq("id", data.book_id);
 
     const { logAdminActivity } = await import("@/lib/unlock.server");
     await logAdminActivity({

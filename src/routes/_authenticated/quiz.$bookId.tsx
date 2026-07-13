@@ -1,9 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useServerFn } from "@tanstack/react-start";
-import { submitQuiz } from "@/lib/library.functions";
+import { submitQuiz, getQuizData } from "@/lib/library.functions";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -20,22 +19,18 @@ function Quiz() {
   const { bookId } = Route.useParams();
   const nav = useNavigate();
   const submit = useServerFn(submitQuiz);
+  const fetchQuizData = useServerFn(getQuizData);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [result, setResult] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const { data: book } = useQuery({
-    queryKey: ["book", bookId],
-    queryFn: async () => (await supabase.from("books").select("title").eq("id", bookId).single()).data,
-  });
-  const { data: questions } = useQuery({
+  const { data: quizData } = useQuery({
     queryKey: ["quiz", bookId],
-    queryFn: async () => {
-      // Do NOT select correct_index or explanation — answers are server-side only.
-      const { data } = await supabase.from("quiz_questions").select("id, book_id, question, options, display_order").eq("book_id", bookId).order("display_order");
-      return data ?? [];
-    },
+    queryFn: async () => fetchQuizData({ data: { book_id: bookId } }),
   });
+
+  const book = quizData?.book;
+  const questions = quizData?.questions;
 
   if (!questions) return <div className="text-muted-foreground">Loading quiz…</div>;
   if (questions.length === 0) {
