@@ -17,7 +17,7 @@ function ProgressPage() {
     queryFn: async () => {
       const { data: u } = await supabase.auth.getUser();
       const [{ data: books }, { data: progress }, { data: attempts }] = await Promise.all([
-        supabase.from("books").select("*").order("global_order"),
+        supabase.from("books").select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages").order("global_order"),
         supabase.from("user_progress").select("*").eq("user_id", u.user!.id),
         supabase.from("quiz_attempts").select("*").eq("user_id", u.user!.id).order("created_at", { ascending: false }),
       ]);
