@@ -47,7 +47,9 @@ function Reader() {
   const { data: book } = useQuery({
     queryKey: ["book", bookId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("books").select("*, categories(name)").eq("id", bookId).single();
+      // pdf_path is revoked from client Data API reads — use has_pdf for UI checks
+      // and call getPdfUrl (unlock-gated server fn) to retrieve the signed URL.
+      const { data, error } = await supabase.from("books").select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages, categories(name)").eq("id", bookId).single();
       if (error) throw error;
       return data;
     },
