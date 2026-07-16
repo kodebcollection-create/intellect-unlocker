@@ -152,6 +152,16 @@ function policyAdvice(message: string, area: "storage" | "read" | "role") {
     : "The read check failed. Check the related table grant or access policy and retry.";
 }
 
+function diagnosticError(error: unknown) {
+  if (!error || typeof error !== "object") return String(error ?? "Unknown backend error");
+  const parts = [
+    "message" in error ? String((error as { message?: unknown }).message ?? "") : "",
+    "code" in error ? `code: ${String((error as { code?: unknown }).code ?? "")}` : "",
+    "status" in error ? `status: ${String((error as { status?: unknown }).status ?? "")}` : "",
+  ].filter(Boolean);
+  return parts.join(" · ") || "Unknown backend error";
+}
+
 // Admin-only: run the same authenticated storage/read paths the UI depends on.
 export const runStorageHealthCheck = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -166,11 +176,9 @@ export const runStorageHealthCheck = createServerFn({ method: "POST" })
     }> = [];
 
     const addCheck = (check: (typeof checks)[number]) => checks.push(check);
-    const errorMessage = (error: unknown) => safeError(error as { message?: string }, "Unknown backend error");
-
     const { data: isAdmin, error: roleError } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
     if (roleError) {
-      const detail = errorMessage(roleError);
+      const detail = diagnosticError(roleError);
       addCheck({
         key: "admin-role",
         label: "Admin role check",
@@ -196,7 +204,7 @@ export const runStorageHealthCheck = createServerFn({ method: "POST" })
       .eq("role", "admin")
       .maybeSingle();
     if (roleRead.error) {
-      const detail = errorMessage(roleRead.error);
+      const detail = diagnosticError(roleRead.error);
       addCheck({
         key: "role-row-read",
         label: "Role table read",
@@ -216,7 +224,7 @@ export const runStorageHealthCheck = createServerFn({ method: "POST" })
 
     const categoryRead = await context.supabase.from("categories").select("id, name").limit(1);
     if (categoryRead.error) {
-      const detail = errorMessage(categoryRead.error);
+      const detail = diagnosticError(categoryRead.error);
       addCheck({
         key: "category-read",
         label: "Category read",
@@ -241,7 +249,7 @@ export const runStorageHealthCheck = createServerFn({ method: "POST" })
       .upload(probePath, probePdf, { contentType: "application/pdf", upsert: false });
 
     if (uploadResult.error) {
-      const detail = errorMessage(uploadResult.error);
+      const detail = diagnosticError(uploadResult.error);
       addCheck({
         key: "storage-upload",
         label: "Authenticated storage upload",
@@ -260,7 +268,7 @@ export const runStorageHealthCheck = createServerFn({ method: "POST" })
 
       const cleanup = await context.supabase.storage.from("book-pdfs").remove([probePath]);
       if (cleanup.error) {
-        const detail = errorMessage(cleanup.error);
+        const detail = diagnosticError(cleanup.error);
         addCheck({
           key: "storage-cleanup",
           label: "Storage cleanup",
@@ -286,7 +294,7 @@ export const runStorageHealthCheck = createServerFn({ method: "POST" })
       .eq("published", true)
       .not("pdf_path", "is", null);
     if (libraryReadError) {
-      const detail = errorMessage(libraryReadError);
+      const detail = diagnosticError(libraryReadError);
       addCheck({
         key: "published-library-read",
         label: "Published library read path",

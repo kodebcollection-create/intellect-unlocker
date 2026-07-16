@@ -247,9 +247,9 @@ function Admin() {
     const v = await validatePdfFile(file);
     if (!v.ok) { toast.error(`${file.name}: ${v.reason}`); return false; }
 
+    let stage: "storage" | "metadata" = "storage";
     try {
       const path = `${bookId}/${Date.now()}-${file.name}`;
-      let stage: "storage" | "metadata" = "storage";
       const { error: upErr } = await supabase.storage
         .from("book-pdfs").upload(path, file, { upsert: true, contentType: "application/pdf" });
       if (upErr) throw upErr;
@@ -267,7 +267,6 @@ function Admin() {
       qc.invalidateQueries({ queryKey: ["library"] });
       return true;
     } catch (e: any) {
-      const stage = e?.statusCode || e?.error || e?.name === "StorageError" ? "storage" : "metadata";
       const issue = explainUploadIssue(file.name, stage, e);
       setUploadIssue(issue);
       toast.error(issue.title, { description: issue.message });
