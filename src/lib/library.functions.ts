@@ -154,35 +154,6 @@ export const getPdfUrl = createServerFn({ method: "POST" })
 
 type HealthCheckStatus = "pass" | "fail" | "warn";
 
-function policyAdvice(message: string, area: "storage" | "read" | "role") {
-  const lower = message.toLowerCase();
-  if (lower.includes("row-level security") || lower.includes("rls") || lower.includes("policy")) {
-    if (area === "storage") {
-      return "The signed-in account reached storage, but the upload policy rejected it. Confirm the account has the admin role and the book-pdfs admin upload policy is active.";
-    }
-    return "A database access policy rejected this read. Confirm the signed-in account has the expected role and the table grants/policies are active.";
-  }
-  if (lower.includes("permission denied") || lower.includes("not authorized") || lower.includes("unauthorized")) {
-    return "The backend denied permission. Sign out and back in, then confirm this account is still an admin.";
-  }
-  if (lower.includes("jwt") || lower.includes("token") || lower.includes("auth")) {
-    return "The session token was missing or invalid. Sign out and back in, then retry the check.";
-  }
-  return area === "storage"
-    ? "Storage did not accept the test upload. Check the storage upload policy and retry."
-    : "The read check failed. Check the related table grant or access policy and retry.";
-}
-
-function diagnosticError(error: unknown) {
-  if (!error || typeof error !== "object") return String(error ?? "Unknown backend error");
-  const parts = [
-    "message" in error ? String((error as { message?: unknown }).message ?? "") : "",
-    "code" in error ? `code: ${String((error as { code?: unknown }).code ?? "")}` : "",
-    "status" in error ? `status: ${String((error as { status?: unknown }).status ?? "")}` : "",
-  ].filter(Boolean);
-  return parts.join(" · ") || "Unknown backend error";
-}
-
 // Admin-only: run the same authenticated storage/read paths the UI depends on.
 export const runStorageHealthCheck = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -197,6 +168,33 @@ export const runStorageHealthCheck = createServerFn({ method: "POST" })
     }> = [];
 
     const addCheck = (check: (typeof checks)[number]) => checks.push(check);
+    const diagnosticError = (error: unknown) => {
+      if (!error || typeof error !== "object") return String(error ?? "Unknown backend error");
+      const parts = [
+        "message" in error ? String((error as { message?: unknown }).message ?? "") : "",
+        "code" in error ? `code: ${String((error as { code?: unknown }).code ?? "")}` : "",
+        "status" in error ? `status: ${String((error as { status?: unknown }).status ?? "")}` : "",
+      ].filter(Boolean);
+      return parts.join(" · ") || "Unknown backend error";
+    };
+    const policyAdvice = (message: string, area: "storage" | "read" | "role") => {
+      const lower = message.toLowerCase();
+      if (lower.includes("row-level security") || lower.includes("rls") || lower.includes("policy")) {
+        if (area === "storage") {
+          return "The signed-in account reached storage, but the upload policy rejected it. Confirm the account has the admin role and the book-pdfs admin upload policy is active.";
+        }
+        return "A database access policy rejected this read. Confirm the signed-in account has the expected role and the table grants/policies are active.";
+      }
+      if (lower.includes("permission denied") || lower.includes("not authorized") || lower.includes("unauthorized")) {
+        return "The backend denied permission. Sign out and back in, then confirm this account is still an admin.";
+      }
+      if (lower.includes("jwt") || lower.includes("token") || lower.includes("auth")) {
+        return "The session token was missing or invalid. Sign out and back in, then retry the check.";
+      }
+      return area === "storage"
+        ? "Storage did not accept the test upload. Check the storage upload policy and retry."
+        : "The read check failed. Check the related table grant or access policy and retry.";
+    };
     const { data: roleRowForCheck, error: roleError } = await context.supabase
       .from("user_roles")
       .select("role")
