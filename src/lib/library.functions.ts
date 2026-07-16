@@ -4,6 +4,17 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 import { safeError } from "@/lib/safe-error";
 
+async function isCurrentUserAdmin(context: { supabase: any; userId: string }) {
+  const { data, error } = await context.supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", context.userId)
+    .eq("role", "admin")
+    .maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+
 // User library list. Uses the server to return only safe, published book fields
 // so the client never needs direct access to the private pdf_path column.
 export const getLibraryData = createServerFn({ method: "GET" })
@@ -36,7 +47,7 @@ export const getBookDetails = createServerFn({ method: "POST" })
   .inputValidator((i: unknown) => z.object({ book_id: z.string().uuid() }).parse(i))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const isAdmin = await isCurrentUserAdmin(context);
     let query = supabaseAdmin
       .from("books")
       .select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages, categories(name)")
@@ -73,7 +84,7 @@ export const getProgressPageData = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const isAdmin = await isCurrentUserAdmin(context);
     const booksQuery = supabaseAdmin
       .from("books")
       .select("id, title, author, category_id, cover_url, description, display_order, global_order, has_pdf, page_count, published, total_pages")
@@ -113,7 +124,7 @@ export const getPdfUrl = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ book_id: z.string().uuid() }).parse(i))
   .handler(async ({ data, context }) => {
-    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const isAdmin = await isCurrentUserAdmin(context);
     if (!isAdmin) {
       const { assertBookUnlocked } = await import("@/lib/unlock.server");
       await assertBookUnlocked(context.userId, data.book_id);
@@ -176,7 +187,12 @@ export const runStorageHealthCheck = createServerFn({ method: "POST" })
     }> = [];
 
     const addCheck = (check: (typeof checks)[number]) => checks.push(check);
-    const { data: isAdmin, error: roleError } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: roleRowForCheck, error: roleError } = await context.supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId)
+      .eq("role", "admin")
+      .maybeSingle();
     if (roleError) {
       const detail = diagnosticError(roleError);
       addCheck({
@@ -189,7 +205,7 @@ export const runStorageHealthCheck = createServerFn({ method: "POST" })
       });
       throw new Error("Admin role check failed");
     }
-    if (!isAdmin) throw new Error("Forbidden");
+    if (!roleRowForCheck) throw new Error("Forbidden");
     addCheck({
       key: "admin-role",
       label: "Admin role check",
