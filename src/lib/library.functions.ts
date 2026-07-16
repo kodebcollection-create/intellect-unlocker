@@ -113,8 +113,11 @@ export const getPdfUrl = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({ book_id: z.string().uuid() }).parse(i))
   .handler(async ({ data, context }) => {
-    const { assertBookUnlocked } = await import("@/lib/unlock.server");
-    await assertBookUnlocked(context.userId, data.book_id);
+    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    if (!isAdmin) {
+      const { assertBookUnlocked } = await import("@/lib/unlock.server");
+      await assertBookUnlocked(context.userId, data.book_id);
+    }
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: book, error: bErr } = await supabaseAdmin
@@ -126,6 +129,188 @@ export const getPdfUrl = createServerFn({ method: "POST" })
       .from("book-pdfs").createSignedUrl(book.pdf_path, 3600);
     if (error) throw new Error(safeError(error));
     return { url: signed.signedUrl };
+  });
+
+type HealthCheckStatus = "pass" | "fail" | "warn";
+
+function policyAdvice(message: string, area: "storage" | "read" | "role") {
+  const lower = message.toLowerCase();
+  if (lower.includes("row-level security") || lower.includes("rls") || lower.includes("policy")) {
+    if (area === "storage") {
+      return "The signed-in account reached storage, but the upload policy rejected it. Confirm the account has the admin role and the book-pdfs admin upload policy is active.";
+    }
+    return "A database access policy rejected this read. Confirm the signed-in account has the expected role and the table grants/policies are active.";
+  }
+  if (lower.includes("permission denied") || lower.includes("not authorized") || lower.includes("unauthorized")) {
+    return "The backend denied permission. Sign out and back in, then confirm this account is still an admin.";
+  }
+  if (lower.includes("jwt") || lower.includes("token") || lower.includes("auth")) {
+    return "The session token was missing or invalid. Sign out and back in, then retry the check.";
+  }
+  return area === "storage"
+    ? "Storage did not accept the test upload. Check the storage upload policy and retry."
+    : "The read check failed. Check the related table grant or access policy and retry.";
+}
+
+// Admin-only: run the same authenticated storage/read paths the UI depends on.
+export const runStorageHealthCheck = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const checks: Array<{
+      key: string;
+      label: string;
+      status: HealthCheckStatus;
+      message: string;
+      detail?: string;
+      advice?: string;
+    }> = [];
+
+    const addCheck = (check: (typeof checks)[number]) => checks.push(check);
+    const errorMessage = (error: unknown) => safeError(error as { message?: string }, "Unknown backend error");
+
+    const { data: isAdmin, error: roleError } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    if (roleError) {
+      const detail = errorMessage(roleError);
+      addCheck({
+        key: "admin-role",
+        label: "Admin role check",
+        status: "fail",
+        message: "Could not verify the current account's admin role.",
+        detail,
+        advice: policyAdvice(detail, "role"),
+      });
+      throw new Error("Admin role check failed");
+    }
+    if (!isAdmin) throw new Error("Forbidden");
+    addCheck({
+      key: "admin-role",
+      label: "Admin role check",
+      status: "pass",
+      message: "This signed-in account is recognized as an admin.",
+    });
+
+    const roleRead = await context.supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (roleRead.error) {
+      const detail = errorMessage(roleRead.error);
+      addCheck({
+        key: "role-row-read",
+        label: "Role table read",
+        status: "fail",
+        message: "The app could not read the current admin role row.",
+        detail,
+        advice: policyAdvice(detail, "read"),
+      });
+    } else {
+      addCheck({
+        key: "role-row-read",
+        label: "Role table read",
+        status: "pass",
+        message: "The admin role row is readable by this account.",
+      });
+    }
+
+    const categoryRead = await context.supabase.from("categories").select("id, name").limit(1);
+    if (categoryRead.error) {
+      const detail = errorMessage(categoryRead.error);
+      addCheck({
+        key: "category-read",
+        label: "Category read",
+        status: "fail",
+        message: "The app could not read library categories.",
+        detail,
+        advice: policyAdvice(detail, "read"),
+      });
+    } else {
+      addCheck({
+        key: "category-read",
+        label: "Category read",
+        status: "pass",
+        message: `Category metadata is readable (${categoryRead.data?.length ?? 0} sample row${(categoryRead.data?.length ?? 0) === 1 ? "" : "s"}).`,
+      });
+    }
+
+    const probePath = `_health/${context.userId}/${Date.now()}.pdf`;
+    const probePdf = new Blob(["%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"], { type: "application/pdf" });
+    const uploadResult = await context.supabase.storage
+      .from("book-pdfs")
+      .upload(probePath, probePdf, { contentType: "application/pdf", upsert: false });
+
+    if (uploadResult.error) {
+      const detail = errorMessage(uploadResult.error);
+      addCheck({
+        key: "storage-upload",
+        label: "Authenticated storage upload",
+        status: "fail",
+        message: "The private PDF bucket rejected an authenticated admin upload.",
+        detail,
+        advice: policyAdvice(detail, "storage"),
+      });
+    } else {
+      addCheck({
+        key: "storage-upload",
+        label: "Authenticated storage upload",
+        status: "pass",
+        message: "The private PDF bucket accepted a test upload from this admin account.",
+      });
+
+      const cleanup = await context.supabase.storage.from("book-pdfs").remove([probePath]);
+      if (cleanup.error) {
+        const detail = errorMessage(cleanup.error);
+        addCheck({
+          key: "storage-cleanup",
+          label: "Storage cleanup",
+          status: "warn",
+          message: "The upload worked, but the test file could not be removed automatically.",
+          detail,
+          advice: "Uploads are allowed, but delete cleanup may be blocked. Check the admin delete policy for the PDF bucket.",
+        });
+      } else {
+        addCheck({
+          key: "storage-cleanup",
+          label: "Storage cleanup",
+          status: "pass",
+          message: "The test PDF was removed successfully.",
+        });
+      }
+    }
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { count, error: libraryReadError } = await supabaseAdmin
+      .from("books")
+      .select("id", { count: "exact", head: true })
+      .eq("published", true)
+      .not("pdf_path", "is", null);
+    if (libraryReadError) {
+      const detail = errorMessage(libraryReadError);
+      addCheck({
+        key: "published-library-read",
+        label: "Published library read path",
+        status: "fail",
+        message: "The server-side library read path could not load published PDFs.",
+        detail,
+        advice: "The learner library uses this read path. Check the books table and retry Sync Library after publishing.",
+      });
+    } else {
+      addCheck({
+        key: "published-library-read",
+        label: "Published library read path",
+        status: "pass",
+        message: `${count ?? 0} published PDF${(count ?? 0) === 1 ? "" : "s"} are visible to the library read path.`,
+      });
+    }
+
+    const failed = checks.filter((check) => check.status === "fail").length;
+    const warnings = checks.filter((check) => check.status === "warn").length;
+    return {
+      ranAt: new Date().toISOString(),
+      checks,
+      summary: failed > 0 ? "fail" : warnings > 0 ? "warn" : "pass",
+    };
   });
 
 // Save/update reading progress (auto-bookmark). Unlock-gated.
