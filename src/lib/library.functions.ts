@@ -211,7 +211,7 @@ export const runStorageHealthCheck = createServerFn({ method: "POST" })
         detail,
         advice: policyAdvice(detail, "role"),
       });
-      throw new Error("Admin role check failed");
+      return { ranAt: new Date().toISOString(), checks, summary: "fail" as const };
     }
     if (!roleRowForCheck) throw new Error("Forbidden");
     addCheck({
