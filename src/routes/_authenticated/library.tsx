@@ -1,20 +1,27 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getLibraryData } from "@/lib/library.functions";
-import { Lock, CheckCircle2, BookOpen, Circle } from "lucide-react";
+import { Lock, CheckCircle2, BookOpen, Circle, RefreshCw } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/library")({
   component: Library,
 });
 
 function Library() {
+  const queryClient = useQueryClient();
   const fetchLibraryData = useServerFn(getLibraryData);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ["library"],
     queryFn: async () => fetchLibraryData(),
   });
+
+  const syncLibrary = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["library"] });
+    await refetch();
+  };
 
   if (isLoading || !data) return <div className="text-muted-foreground">Loading library…</div>;
   const { cats, books, progress } = data;
@@ -34,11 +41,19 @@ function Library() {
   return (
     <div className="space-y-10">
       <div>
-        <h1 className="font-display text-4xl">Your library</h1>
-        <p className="mt-1 text-muted-foreground">Read each book in order. Pass the quiz to unlock the next.</p>
-        <div className="mt-4 flex items-center gap-4">
-          <Progress value={(completed / 30) * 100} className="max-w-md" />
-          <span className="text-sm text-muted-foreground">{completed} / 30 books mastered</span>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="font-display text-4xl">Your library</h1>
+            <p className="mt-1 text-muted-foreground">Read each book in order. Pass the quiz to unlock the next.</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={syncLibrary} disabled={isFetching}>
+            <RefreshCw className={`mr-1.5 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            Sync Library
+          </Button>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          <Progress value={(completed / Math.max(books.length, 1)) * 100} className="max-w-md" />
+          <span className="text-sm text-muted-foreground">{completed} / {books.length} books mastered</span>
         </div>
       </div>
 

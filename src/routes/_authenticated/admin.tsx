@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -89,6 +89,57 @@ type ConfirmState =
       title: string;
     };
 
+type UploadIssue = {
+  title: string;
+  message: string;
+  detail: string;
+};
+
+function explainUploadIssue(fileName: string, stage: "storage" | "metadata", error: unknown): UploadIssue {
+  const detail = error && typeof error === "object" && "message" in error
+    ? String((error as { message?: unknown }).message ?? "Unknown error")
+    : String(error ?? "Unknown error");
+  const lower = detail.toLowerCase();
+
+  if (lower.includes("row-level security") || lower.includes("rls") || lower.includes("policy")) {
+    return stage === "storage"
+      ? {
+          title: `Storage policy blocked ${fileName}`,
+          message: "The PDF file could not be stored because the private bucket rejected this signed-in admin upload. Run Storage & RLS Health Check, confirm the admin role check passes, then retry.",
+          detail,
+        }
+      : {
+          title: `Book update policy blocked ${fileName}`,
+          message: "The PDF reached storage, but the book record could not save the PDF path/page count. Run Storage & RLS Health Check and confirm the books update policy recognizes your admin role.",
+          detail,
+        };
+  }
+
+  if (lower.includes("permission denied") || lower.includes("unauthorized") || lower.includes("not authorized")) {
+    return {
+      title: `Permission denied for ${fileName}`,
+      message: "Your session is valid, but the backend denied this admin action. Sign out and back in, verify you are still an admin, then run Storage & RLS Health Check.",
+      detail,
+    };
+  }
+
+  if (lower.includes("jwt") || lower.includes("token") || lower.includes("auth")) {
+    return {
+      title: `Session problem while uploading ${fileName}`,
+      message: "The upload request did not include a valid session token. Sign out and back in, then retry the upload.",
+      detail,
+    };
+  }
+
+  return {
+    title: `Upload failed for ${fileName}`,
+    message: stage === "storage"
+      ? "The PDF could not be stored. Run Storage & RLS Health Check to identify whether storage uploads are currently allowed."
+      : "The PDF was stored, but the book record could not be updated. Run Storage & RLS Health Check, then retry publishing.",
+    detail,
+  };
+}
+
 function Admin() {
   const qc = useQueryClient();
   const setPath = useServerFn(setBookPdfPath);
@@ -109,6 +160,16 @@ function Admin() {
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [showActivity, setShowActivity] = useState(false);
+  const [uploadIssue, setUploadIssue] = useState<UploadIssue | null>(null);
+
+  const refreshBookCaches = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["admin-books"] }),
+      qc.invalidateQueries({ queryKey: ["library"] }),
+      qc.invalidateQueries({ queryKey: ["progress"] }),
+    ]);
+    await refetch();
+  };
 
   const { data: me } = useQuery({
     queryKey: ["admin-check"],
@@ -186,12 +247,15 @@ function Admin() {
     const v = await validatePdfFile(file);
     if (!v.ok) { toast.error(`${file.name}: ${v.reason}`); return false; }
 
+    let stage: "storage" | "metadata" = "storage";
     try {
       const path = `${bookId}/${Date.now()}-${file.name}`;
       const { error: upErr } = await supabase.storage
         .from("book-pdfs").upload(path, file, { upsert: true, contentType: "application/pdf" });
       if (upErr) throw upErr;
+      stage = "metadata";
       await setPath({ data: { book_id: bookId, pdf_path: path, page_count: v.numPages, replaced: opts.replaced } });
+      setUploadIssue(null);
       toast.success(`Uploaded: ${file.name} (${v.numPages} pages)`);
       if (opts.openPreviewAfter) {
         const { url } = await getUrl({ data: { book_id: bookId } });
@@ -200,9 +264,12 @@ function Admin() {
           numPages: v.numPages, error: null, pendingPublish: !!opts.pendingPublish,
         });
       }
+      qc.invalidateQueries({ queryKey: ["library"] });
       return true;
     } catch (e: any) {
-      toast.error(`Failed: ${file.name} — ${e.message}`);
+      const issue = explainUploadIssue(file.name, stage, e);
+      setUploadIssue(issue);
+      toast.error(issue.title, { description: issue.message });
       return false;
     }
   };
@@ -210,7 +277,7 @@ function Admin() {
   const replacePdf = async (bookId: string, file: File) => {
     setBusyBookId(bookId);
     const ok = await uploadOne(bookId, file, { openPreviewAfter: true, title: file.name, replaced: true });
-    if (ok) refetch();
+    if (ok) refreshBookCaches();
     setBusyBookId(null);
   };
 
@@ -237,21 +304,21 @@ function Admin() {
     setBusyCategory(null);
     if (succeeded > 0) {
       toast.success(`${succeeded} of ${list.length} PDF${list.length === 1 ? "" : "s"} added (draft)`);
-      await refetch();
+      await refreshBookCaches();
       if (firstNewBookId) await openPreview(firstNewBookId, firstNewTitle, { pendingPublish: true });
     }
   };
 
   const performDeletePdf = async (bookId: string) => {
     setBusyBookId(bookId);
-    try { await delPdf({ data: { book_id: bookId } }); toast.success("PDF removed (book unpublished)"); refetch(); }
+    try { await delPdf({ data: { book_id: bookId } }); toast.success("PDF removed (book unpublished)"); refreshBookCaches(); }
     catch (e: any) { toast.error(e.message); }
     setBusyBookId(null);
   };
 
   const performDeleteBook = async (bookId: string) => {
     setBusyBookId(bookId);
-    try { await delBook({ data: { book_id: bookId } }); toast.success("Book deleted"); refetch(); }
+    try { await delBook({ data: { book_id: bookId } }); toast.success("Book deleted"); refreshBookCaches(); }
     catch (e: any) { toast.error(e.message); }
     setBusyBookId(null);
   };
@@ -261,20 +328,20 @@ function Admin() {
     try {
       await togglePublished({ data: { book_id: b.id, published: next } });
       toast.success(next ? "Published" : "Unpublished (hidden from library)");
-      refetch();
+      refreshBookCaches();
     } catch (e: any) { toast.error(e.message); }
   };
 
   const generate = async (bookId: string) => {
     setBusyBookId(bookId);
-    try { const r = await genQuiz({ data: { book_id: bookId } }); toast.success(`Generated ${r.count} questions`); refetch(); }
+    try { const r = await genQuiz({ data: { book_id: bookId } }); toast.success(`Generated ${r.count} questions`); refreshBookCaches(); }
     catch (e: any) { toast.error(e.message); }
     setBusyBookId(null);
   };
 
   const saveTitle = async () => {
     if (!editing) return;
-    try { await rename({ data: { book_id: editing.id, title: editing.title.trim() } }); toast.success("Title updated"); setEditing(null); refetch(); }
+    try { await rename({ data: { book_id: editing.id, title: editing.title.trim() } }); toast.success("Title updated"); setEditing(null); refreshBookCaches(); }
     catch (e: any) { toast.error(e.message); }
   };
 
@@ -300,7 +367,32 @@ function Admin() {
           <History className="mr-1.5 h-4 w-4" />
           {showActivity ? "Hide" : "Show"} activity
         </Button>
+        <Button asChild variant="outline" size="sm">
+          <Link to="/admin-health">
+            <ShieldCheck className="mr-1.5 h-4 w-4" />
+            Storage & RLS Health Check
+          </Link>
+        </Button>
       </div>
+
+      {uploadIssue && (
+        <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+            <div className="min-w-0 flex-1">
+              <div className="font-medium text-destructive">{uploadIssue.title}</div>
+              <p className="mt-1 text-sm text-muted-foreground">{uploadIssue.message}</p>
+              <pre className="mt-3 whitespace-pre-wrap break-words rounded-md bg-background/70 p-3 text-xs text-muted-foreground">{uploadIssue.detail}</pre>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/admin-health">Run health check</Link>
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setUploadIssue(null)}>Dismiss</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showActivity && (
         <section className="rounded-lg border border-border bg-card p-4">
@@ -536,7 +628,7 @@ function Admin() {
                       await togglePublished({ data: { book_id: preview.bookId, published: true } });
                       toast.success("Published — visible in the library");
                       setPreview(null);
-                      refetch();
+                      refreshBookCaches();
                     } catch (e: any) { toast.error(e.message); }
                   }}
                 >
