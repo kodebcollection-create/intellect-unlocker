@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedVocabularyRouteImport } from './routes/_authenticated/vocabulary'
 import { Route as AuthenticatedProgressRouteImport } from './routes/_authenticated/progress'
 import { Route as AuthenticatedLibraryRouteImport } from './routes/_authenticated/library'
+import { Route as AuthenticatedAdminHealthRouteImport } from './routes/_authenticated/admin-health'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedReadBookIdRouteImport } from './routes/_authenticated/read.$bookId'
 import { Route as AuthenticatedQuizBookIdRouteImport } from './routes/_authenticated/quiz.$bookId'
@@ -48,6 +49,12 @@ const AuthenticatedLibraryRoute = AuthenticatedLibraryRouteImport.update({
   path: '/library',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminHealthRoute =
+  AuthenticatedAdminHealthRouteImport.update({
+    id: '/admin-health',
+    path: '/admin-health',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -68,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/admin-health': typeof AuthenticatedAdminHealthRoute
   '/library': typeof AuthenticatedLibraryRoute
   '/progress': typeof AuthenticatedProgressRoute
   '/vocabulary': typeof AuthenticatedVocabularyRoute
@@ -78,6 +86,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/admin-health': typeof AuthenticatedAdminHealthRoute
   '/library': typeof AuthenticatedLibraryRoute
   '/progress': typeof AuthenticatedProgressRoute
   '/vocabulary': typeof AuthenticatedVocabularyRoute
@@ -90,6 +99,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/admin-health': typeof AuthenticatedAdminHealthRoute
   '/_authenticated/library': typeof AuthenticatedLibraryRoute
   '/_authenticated/progress': typeof AuthenticatedProgressRoute
   '/_authenticated/vocabulary': typeof AuthenticatedVocabularyRoute
@@ -102,6 +112,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/admin'
+    | '/admin-health'
     | '/library'
     | '/progress'
     | '/vocabulary'
@@ -112,6 +123,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/admin'
+    | '/admin-health'
     | '/library'
     | '/progress'
     | '/vocabulary'
@@ -123,6 +135,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/admin'
+    | '/_authenticated/admin-health'
     | '/_authenticated/library'
     | '/_authenticated/progress'
     | '/_authenticated/vocabulary'
@@ -180,6 +193,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLibraryRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin-health': {
+      id: '/_authenticated/admin-health'
+      path: '/admin-health'
+      fullPath: '/admin-health'
+      preLoaderRoute: typeof AuthenticatedAdminHealthRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/admin': {
       id: '/_authenticated/admin'
       path: '/admin'
@@ -206,6 +226,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedAdminHealthRoute: typeof AuthenticatedAdminHealthRoute
   AuthenticatedLibraryRoute: typeof AuthenticatedLibraryRoute
   AuthenticatedProgressRoute: typeof AuthenticatedProgressRoute
   AuthenticatedVocabularyRoute: typeof AuthenticatedVocabularyRoute
@@ -215,6 +236,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedAdminHealthRoute: AuthenticatedAdminHealthRoute,
   AuthenticatedLibraryRoute: AuthenticatedLibraryRoute,
   AuthenticatedProgressRoute: AuthenticatedProgressRoute,
   AuthenticatedVocabularyRoute: AuthenticatedVocabularyRoute,
