@@ -3,7 +3,7 @@
 // loading issues; the dedicated viewer still does full rendering validation.
 
 export type PdfValidationResult =
-  | { ok: true; numPages: number }
+  | { ok: true; numPages: number | null }
   | { ok: false; reason: string };
 
 export async function validatePdfFile(file: File): Promise<PdfValidationResult> {
@@ -18,10 +18,14 @@ export async function validatePdfFile(file: File): Promise<PdfValidationResult> 
       return { ok: false, reason: "PDF is password-protected. Remove the password and try again." };
     }
 
+    const explicitCount = body.match(/\/Count\s+(\d+)/g)
+      ?.map((match) => Number(match.match(/\d+/)?.[0] ?? 0))
+      .filter((count) => Number.isFinite(count) && count > 0)
+      .sort((a, b) => b - a)[0];
     const pageRefs = body.match(/\/Type\s*\/Page\b/g) ?? [];
     const pagesNodeRefs = body.match(/\/Type\s*\/Pages\b/g) ?? [];
-    const numPages = Math.max(0, pageRefs.length - pagesNodeRefs.length);
-    if (!numPages || numPages < 1) return { ok: false, reason: "PDF reports 0 pages" };
+    const inferredCount = Math.max(0, pageRefs.length - pagesNodeRefs.length);
+    const numPages = explicitCount || inferredCount || null;
     return { ok: true, numPages };
   } catch (e: any) {
     return { ok: false, reason: `Could not inspect PDF: ${e?.message ?? "unknown error"}` };
