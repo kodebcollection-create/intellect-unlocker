@@ -558,6 +558,43 @@ export const getAdminBooks = createServerFn({ method: "GET" })
   });
 
 // Admin: record an uploaded PDF path (and optional page count) on a book.
+export const createAdminPdfUploadUrl = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) => z.object({
+    book_id: z.string().uuid(),
+    file_name: z.string().min(1).max(240),
+    file_size: z.number().int().positive().max(50 * 1024 * 1024),
+  }).parse(i))
+  .handler(async ({ data, context }) => {
+    const { data: roleRow, error: roleError } = await context.supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (roleError) throw new Error(safeError(roleError));
+    if (!roleRow) throw new Error("Forbidden");
+
+    const cleanedName = data.file_name
+      .normalize("NFKD")
+      .replace(/[^a-zA-Z0-9._ -]+/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^\.+/, "")
+      .slice(0, 140);
+    const fileName = (cleanedName || "book.pdf").toLowerCase().endsWith(".pdf")
+      ? (cleanedName || "book.pdf")
+      : `${cleanedName || "book"}.pdf`;
+    const path = `books/${data.book_id}/${Date.now()}-${crypto.randomUUID()}-${fileName}`;
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: signed, error } = await supabaseAdmin.storage
+      .from("book-pdfs")
+      .createSignedUploadUrl(path, { upsert: false });
+    if (error) throw new Error(safeError(error));
+    return { path, token: signed.token };
+  });
+
 export const setBookPdfPath = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((i: unknown) => z.object({
