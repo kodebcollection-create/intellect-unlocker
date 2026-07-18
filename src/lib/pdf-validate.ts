@@ -1,33 +1,33 @@
-// Client-only helper to validate a PDF before uploading: parses it with pdfjs
-// to extract the page count and reject encrypted/corrupted files.
-// Imports pdfjs lazily so this never runs at SSR module-scope.
-import PdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?worker";
+// Client-only helper to validate a PDF before uploading without loading PDF.js.
+// This keeps the admin upload flow independent from mobile browser worker/chunk
+// loading issues; the dedicated viewer still does full rendering validation.
 
 export type PdfValidationResult =
-  | { ok: true; numPages: number }
+  | { ok: true; numPages: number | null }
   | { ok: false; reason: string };
 
 export async function validatePdfFile(file: File): Promise<PdfValidationResult> {
   try {
-    const pdfjs: any = await import("pdfjs-dist");
-    if (!pdfjs.GlobalWorkerOptions.workerPort) {
-      pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
-    }
     const buf = await file.arrayBuffer();
-    const task = pdfjs.getDocument({
-      data: buf,
-      // Reject password-protected files immediately rather than prompting.
-      password: "",
-    });
-    const doc = await task.promise;
-    const numPages = doc.numPages;
-    try { await doc.destroy(); } catch {}
-    if (!numPages || numPages < 1) return { ok: false, reason: "PDF reports 0 pages" };
+    const bytes = new Uint8Array(buf.slice(0, Math.min(buf.byteLength, 2_000_000)));
+    const header = new TextDecoder("latin1").decode(bytes.slice(0, 1024));
+    if (!header.includes("%PDF-")) return { ok: false, reason: "File is not a valid PDF document" };
+
+    const body = new TextDecoder("latin1").decode(bytes);
+    if (/\/Encrypt\b/.test(body)) {
+      return { ok: false, reason: "PDF is password-protected. Remove the password and try again." };
+    }
+
+    const explicitCount = body.match(/\/Count\s+(\d+)/g)
+      ?.map((match) => Number(match.match(/\d+/)?.[0] ?? 0))
+      .filter((count) => Number.isFinite(count) && count > 0)
+      .sort((a, b) => b - a)[0];
+    const pageRefs = body.match(/\/Type\s*\/Page\b/g) ?? [];
+    const pagesNodeRefs = body.match(/\/Type\s*\/Pages\b/g) ?? [];
+    const inferredCount = Math.max(0, pageRefs.length - pagesNodeRefs.length);
+    const numPages = explicitCount || inferredCount || null;
     return { ok: true, numPages };
   } catch (e: any) {
-    const msg = (e?.name === "PasswordException" || /password/i.test(e?.message ?? ""))
-      ? "PDF is password-protected. Remove the password and try again."
-      : `Could not parse PDF: ${e?.message ?? "unknown error"}`;
-    return { ok: false, reason: msg };
+    return { ok: false, reason: `Could not inspect PDF: ${e?.message ?? "unknown error"}` };
   }
 }

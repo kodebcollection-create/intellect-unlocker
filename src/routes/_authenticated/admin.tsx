@@ -15,6 +15,7 @@ import {
   getAdminActivity,
   createBook,
   getPdfUrl,
+  createAdminPdfUploadUrl,
 } from "@/lib/library.functions";
 import { validatePdfFile } from "@/lib/pdf-validate";
 import { Button } from "@/components/ui/button";
@@ -153,6 +154,7 @@ function Admin() {
   const fetchActivity = useServerFn(getAdminActivity);
   const createBookFn = useServerFn(createBook);
   const getUrl = useServerFn(getPdfUrl);
+  const createUploadUrl = useServerFn(createAdminPdfUploadUrl);
 
   const [busyBookId, setBusyBookId] = useState<string | null>(null);
   const [busyCategory, setBusyCategory] = useState<string | null>(null);
@@ -249,14 +251,20 @@ function Admin() {
 
     let stage: "storage" | "metadata" = "storage";
     try {
-      const path = `${bookId}/${Date.now()}-${file.name}`;
+      const { path, token } = await createUploadUrl({ data: { book_id: bookId, file_name: file.name, file_size: file.size } });
       const { error: upErr } = await supabase.storage
-        .from("book-pdfs").upload(path, file, { upsert: true, contentType: "application/pdf" });
+        .from("book-pdfs")
+        .uploadToSignedUrl(path, token, file, { contentType: "application/pdf" });
       if (upErr) throw upErr;
       stage = "metadata";
-      await setPath({ data: { book_id: bookId, pdf_path: path, page_count: v.numPages, replaced: opts.replaced } });
+      await setPath({ data: {
+        book_id: bookId,
+        pdf_path: path,
+        ...(v.numPages ? { page_count: v.numPages } : {}),
+        replaced: opts.replaced,
+      } });
       setUploadIssue(null);
-      toast.success(`Uploaded: ${file.name} (${v.numPages} pages)`);
+      toast.success(`Uploaded: ${file.name}${v.numPages ? ` (${v.numPages} pages)` : ""}`);
       if (opts.openPreviewAfter) {
         const { url } = await getUrl({ data: { book_id: bookId } });
         setPreview({
