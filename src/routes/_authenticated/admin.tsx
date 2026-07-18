@@ -257,9 +257,14 @@ function Admin() {
         .uploadToSignedUrl(path, token, file, { contentType: "application/pdf" });
       if (upErr) throw upErr;
       stage = "metadata";
-      await setPath({ data: { book_id: bookId, pdf_path: path, page_count: v.numPages, replaced: opts.replaced } });
+      await setPath({ data: {
+        book_id: bookId,
+        pdf_path: path,
+        ...(v.numPages ? { page_count: v.numPages } : {}),
+        replaced: opts.replaced,
+      } });
       setUploadIssue(null);
-      toast.success(`Uploaded: ${file.name} (${v.numPages} pages)`);
+      toast.success(`Uploaded: ${file.name}${v.numPages ? ` (${v.numPages} pages)` : ""}`);
       if (opts.openPreviewAfter) {
         const { url } = await getUrl({ data: { book_id: bookId } });
         setPreview({

@@ -600,7 +600,7 @@ export const setBookPdfPath = createServerFn({ method: "POST" })
   .inputValidator((i: unknown) => z.object({
     book_id: z.string().uuid(),
     pdf_path: z.string(),
-    page_count: z.number().int().positive().optional(),
+    page_count: z.number().int().positive().nullable().optional(),
     replaced: z.boolean().optional(),
   }).parse(i))
   .handler(async ({ data, context }) => {
