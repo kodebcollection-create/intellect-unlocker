@@ -9,37 +9,72 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/auth")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    next: typeof s.next === "string" ? s.next : undefined,
+  }),
   head: () => ({ meta: [{ title: "Sign in · Umbra" }, { name: "description", content: "Sign in to your Umbra reading account." }] }),
   component: AuthPage,
 });
 
+// Only allow same-origin relative paths to prevent open redirects.
+function safeNext(next: string | undefined): string | null {
+  if (!next) return null;
+  if (!next.startsWith("/") || next.startsWith("//")) return null;
+  return next;
+}
+
 function AuthPage() {
   const nav = useNavigate();
+  const { next } = Route.useSearch();
+  const safe = safeNext(next);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const afterAuth = () => {
+    if (safe) window.location.href = safe;
+    else nav({ to: "/library" });
+  };
+
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => { if (data.user) nav({ to: "/library" }); });
-  }, [nav]);
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) afterAuth();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const signIn = async () => {
     setBusy(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
-    if (error) toast.error(error.message); else { toast.success("Welcome back"); nav({ to: "/library" }); }
+    if (error) toast.error(error.message);
+    else {
+      toast.success("Welcome back");
+      afterAuth();
+    }
   };
   const signUp = async () => {
     setBusy(true);
+    const emailRedirectTo = safe
+      ? `${window.location.origin}${safe}`
+      : `${window.location.origin}/library`;
     const { error } = await supabase.auth.signUp({
-      email, password,
-      options: { emailRedirectTo: `${window.location.origin}/library` },
+      email,
+      password,
+      options: { emailRedirectTo },
     });
     setBusy(false);
-    if (error) toast.error(error.message); else { toast.success("Account created"); nav({ to: "/library" }); }
+    if (error) toast.error(error.message);
+    else {
+      toast.success("Account created");
+      afterAuth();
+    }
   };
   const google = async () => {
-    const res = await lovable.auth.signInWithOAuth("google", { redirect_uri: `${window.location.origin}/library` });
+    const redirect_uri = safe
+      ? `${window.location.origin}${safe}`
+      : `${window.location.origin}/library`;
+    const res = await lovable.auth.signInWithOAuth("google", { redirect_uri });
     if (res.error) toast.error("Google sign-in failed");
   };
 
