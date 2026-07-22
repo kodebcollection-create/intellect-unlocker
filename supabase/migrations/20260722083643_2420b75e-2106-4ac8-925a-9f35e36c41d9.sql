@@ -1,0 +1,1 @@
+UPDATE public.books SET pdf_path = 'dc7e0b78-3c12-4031-a9cd-88f95b4d42b8/1781934400000-1. Influence The Psychology of Persuasion by Robert B. Cialdini.pdf', published = true WHERE id = 'dc7e0b78-3c12-4031-a9cd-88f95b4d42b8';
