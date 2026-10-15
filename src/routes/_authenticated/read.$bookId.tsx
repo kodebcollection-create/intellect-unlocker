@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useAuth } from "@/hooks/use-auth";
-import { getPdfUrl, saveProgress, markBookComplete, getBookDetails } from "@/lib/library.functions";
+import { getPdfUrl, saveProgress, markBookComplete, getBookDetails, askSocraticTutor } from "@/lib/library.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bookmark, Highlighter, NotebookPen, ArrowLeft, ArrowRight, Settings2, BookMarked, ChevronLeft, GraduationCap, PanelRight, ExternalLink } from "lucide-react";
+import { Bookmark, Highlighter, NotebookPen, ArrowLeft, ArrowRight, Settings2, BookMarked, ChevronLeft, GraduationCap, PanelRight, ExternalLink, Sparkles, ScrollText, Send, Bot, User, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 
 // react-pdf/pdfjs-dist reference browser globals (DOMMatrix) at module scope.
@@ -33,11 +33,13 @@ function Reader() {
   const fetchBookDetails = useServerFn(getBookDetails);
   const persistProgress = useServerFn(saveProgress);
   const finishBook = useServerFn(markBookComplete);
+  const callSocraticTutor = useServerFn(askSocraticTutor);
 
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [zoom, setZoom] = useState<number>(100);
+  const [viewMode, setViewMode] = useState<"single" | "continuous">("single");
   const [highlightText, setHighlightText] = useState("");
   const [highlightColor, setHighlightColor] = useState("yellow");
   const [noteText, setNoteText] = useState("");
@@ -45,6 +47,16 @@ function Reader() {
   const [vocabDef, setVocabDef] = useState("");
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Socratic AI Tutor states
+  const [socraticQuestion, setSocraticQuestion] = useState("");
+  const [socraticPassage, setSocraticPassage] = useState("");
+  const [socraticLoading, setSocraticLoading] = useState(false);
+  const [socraticMessages, setSocraticMessages] = useState<Array<{
+    role: "user" | "assistant";
+    content: string;
+    passage?: string;
+  }>>([]);
 
   const { data: book } = useQuery({
     queryKey: ["book", bookId],
@@ -157,16 +169,180 @@ function Reader() {
     nav({ to: "/quiz/$bookId", params: { bookId } });
   };
 
+  const handleAskTutor = async (promptOverride?: string) => {
+    const q = (promptOverride || socraticQuestion).trim();
+    if (!q) {
+      toast.error("Please enter a question or topic to discuss.");
+      return;
+    }
+    const currentPassage = socraticPassage.trim() || undefined;
+    setSocraticLoading(true);
+    setSocraticMessages((prev) => [
+      ...prev,
+      { role: "user", content: q, passage: currentPassage },
+    ]);
+    setSocraticQuestion("");
+    setSocraticPassage("");
+    try {
+      const res = await callSocraticTutor({
+        data: {
+          book_id: bookId,
+          question: q,
+          passage: currentPassage,
+          page,
+        },
+      });
+      setSocraticMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply },
+      ]);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to contact Socratic Companion.");
+      setSocraticMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "*(AI Companion unavailable: Ensure VITE_LOVABLE_API_KEY is configured in your environment settings.)*",
+        },
+      ]);
+    }
+    setSocraticLoading(false);
+  };
+
   const fileProp = useMemo(() => (pdfUrl ? { url: pdfUrl } : null), [pdfUrl]);
 
   const Sidebar = (
-    <Tabs defaultValue="highlight" className="h-full">
-      <TabsList className="m-3 grid grid-cols-4">
-        <TabsTrigger value="highlight"><Highlighter className="h-4 w-4" /></TabsTrigger>
-        <TabsTrigger value="note"><NotebookPen className="h-4 w-4" /></TabsTrigger>
-        <TabsTrigger value="bookmark"><Bookmark className="h-4 w-4" /></TabsTrigger>
-        <TabsTrigger value="vocab">Aa</TabsTrigger>
+    <Tabs defaultValue="highlight" className="flex flex-col h-full">
+      <TabsList className="m-3 grid grid-cols-5">
+        <TabsTrigger value="ai" title="AI Companion"><Sparkles className="h-4 w-4 text-primary" /></TabsTrigger>
+        <TabsTrigger value="highlight" title="Highlights"><Highlighter className="h-4 w-4" /></TabsTrigger>
+        <TabsTrigger value="note" title="Notes"><NotebookPen className="h-4 w-4" /></TabsTrigger>
+        <TabsTrigger value="bookmark" title="Bookmarks"><Bookmark className="h-4 w-4" /></TabsTrigger>
+        <TabsTrigger value="vocab" title="Vocabulary"><BookOpen className="h-4 w-4" /></TabsTrigger>
       </TabsList>
+
+      {/* Socratic AI Tutor Tab */}
+      <TabsContent value="ai" className="flex-1 flex flex-col space-y-3 px-4 overflow-y-auto">
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
+          <p className="font-semibold text-primary flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5" /> Socratic Companion
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            Analyze psychological dynamics, explore counter-defenses, or break down difficult passages from this book.
+          </p>
+        </div>
+
+        {/* Selected passage helper */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Passage Context (Page {page})</span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-xs px-2"
+              onClick={() => {
+                const sel = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
+                if (!sel) {
+                  toast.error("Highlight a passage on the page first");
+                  return;
+                }
+                setSocraticPassage(sel);
+                toast.success("Passage attached");
+              }}
+            >
+              Attach Selection
+            </Button>
+          </div>
+          {socraticPassage && (
+            <div className="rounded border border-border bg-muted/30 p-2 text-xs relative">
+              <p className="line-clamp-3 italic text-muted-foreground">"{socraticPassage}"</p>
+              <button
+                onClick={() => setSocraticPassage("")}
+                className="absolute top-1 right-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Quick prompt suggestions */}
+        <div className="flex flex-wrap gap-1.5">
+          {["Explain this tactic", "Counter-defense?", "Real-world example"].map((prompt) => (
+            <button
+              key={prompt}
+              onClick={() => handleAskTutor(prompt)}
+              disabled={socraticLoading}
+              className="text-[11px] rounded-full border border-border bg-muted/60 px-2.5 py-1 hover:border-primary/40 transition disabled:opacity-50"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+
+        {/* Message exchange history */}
+        <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+          {socraticMessages.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`rounded-lg p-3 text-xs leading-relaxed ${
+                msg.role === "user"
+                  ? "bg-secondary text-secondary-foreground ml-4"
+                  : "bg-card border border-border mr-2"
+              }`}
+            >
+              <div className="flex items-center gap-1.5 font-medium mb-1">
+                {msg.role === "user" ? (
+                  <>
+                    <User className="h-3 w-3" /> You
+                  </>
+                ) : (
+                  <>
+                    <Bot className="h-3.5 w-3.5 text-primary" /> Umbra Tutor
+                  </>
+                )}
+              </div>
+              {msg.passage && (
+                <p className="border-l-2 border-primary/40 pl-2 my-1 italic text-muted-foreground">
+                  "{msg.passage}"
+                </p>
+              )}
+              <div className="whitespace-pre-wrap">{msg.content}</div>
+            </div>
+          ))}
+          {socraticLoading && (
+            <div className="rounded-lg border border-border bg-card p-3 text-xs flex items-center gap-2 text-muted-foreground animate-pulse">
+              <Bot className="h-3.5 w-3.5 text-primary animate-spin" />
+              <span>Analyzing argument and formulating Socratic insight…</span>
+            </div>
+          )}
+        </div>
+
+        {/* Question input */}
+        <div className="pt-2 flex gap-2">
+          <Input
+            value={socraticQuestion}
+            onChange={(e) => setSocraticQuestion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleAskTutor();
+              }
+            }}
+            placeholder="Ask a question about this page…"
+            className="text-xs h-9"
+            disabled={socraticLoading}
+          />
+          <Button
+            size="sm"
+            onClick={() => handleAskTutor()}
+            disabled={socraticLoading || !socraticQuestion.trim()}
+            className="h-9 px-3"
+          >
+            <Send className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </TabsContent>
 
       <TabsContent value="highlight" className="space-y-3 px-4">
         <Label>Highlight from page {page}</Label>
@@ -237,12 +413,47 @@ function Reader() {
             <h1 className="truncate font-display text-base sm:text-lg">{book?.title ?? "Loading…"}</h1>
             <p className="truncate text-xs text-muted-foreground">{(book as any)?.categories?.name}</p>
           </div>
+          {/* Continuous / Single-page toggle button */}
+          <Button
+            variant={viewMode === "continuous" ? "secondary" : "ghost"}
+            size="icon"
+            onClick={() => {
+              const nextMode = viewMode === "single" ? "continuous" : "single";
+              setViewMode(nextMode);
+              toast.info(nextMode === "continuous" ? "Continuous scroll enabled" : "Single page mode enabled");
+            }}
+            title={viewMode === "single" ? "Switch to Continuous Vertical Scroll" : "Switch to Single Page"}
+          >
+            <ScrollText className="h-4 w-4" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={addBookmark} title={`Bookmark page ${page}`}><Bookmark className="h-4 w-4" /></Button>
           <Sheet>
             <SheetTrigger asChild><Button variant="ghost" size="icon" title="Reader settings"><Settings2 className="h-4 w-4" /></Button></SheetTrigger>
             <SheetContent>
               <SheetHeader><SheetTitle>Reader settings</SheetTitle></SheetHeader>
               <div className="mt-6 space-y-6">
+                <div>
+                  <Label className="mb-2 block">Reading Mode</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      size="sm"
+                      variant={viewMode === "single" ? "default" : "outline"}
+                      onClick={() => setViewMode("single")}
+                      className="text-xs"
+                    >
+                      Single Page
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={viewMode === "continuous" ? "default" : "outline"}
+                      onClick={() => setViewMode("continuous")}
+                      className="text-xs"
+                    >
+                      Continuous Scroll
+                    </Button>
+                  </div>
+                </div>
+
                 <div>
                   <div className="flex items-center justify-between">
                     <Label>Zoom / Scale: {zoom}%</Label>
@@ -281,8 +492,8 @@ function Reader() {
           <Sheet>
             <SheetTrigger asChild><Button variant="ghost" size="icon" className="md:hidden" title="Notes & tools"><PanelRight className="h-4 w-4" /></Button></SheetTrigger>
             <SheetContent side="right" className="w-[88vw] max-w-md overflow-y-auto p-0">
-              <SheetHeader className="px-4 pt-4"><SheetTitle>Notes & tools</SheetTitle></SheetHeader>
-              <div className="pb-6">{Sidebar}</div>
+              <SheetHeader className="px-4 pt-4"><SheetTitle>Tools & Socratic AI</SheetTitle></SheetHeader>
+              <div className="pb-6 h-[calc(100vh-5rem)]">{Sidebar}</div>
             </SheetContent>
           </Sheet>
           <Button onClick={finish} variant="secondary" size="sm" className="shrink-0">
@@ -293,7 +504,7 @@ function Reader() {
         </div>
       </header>
 
-      <div className="grid flex-1 gap-0 md:grid-cols-[1fr_360px]">
+      <div className="grid flex-1 gap-0 md:grid-cols-[1fr_380px]">
         {/* PDF viewer */}
         <div className="flex min-w-0 flex-col">
           <div ref={containerRef} className="flex flex-1 justify-center overflow-auto bg-muted/30 p-2 sm:p-4">
@@ -302,6 +513,7 @@ function Reader() {
                 <PdfViewer
                   file={fileProp}
                   page={page}
+                  viewMode={viewMode}
                   width={Math.round(Math.max(280, Math.min(containerWidth - 16, 900)) * (zoom / 100))}
                   onLoadSuccess={(n) => setNumPages(n)}
                   onLoadError={() => { /* inline error UI handled in PdfViewer */ }}

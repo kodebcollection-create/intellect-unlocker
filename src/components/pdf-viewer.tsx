@@ -22,6 +22,8 @@ export default function PdfViewer({
   file,
   page,
   width,
+  viewMode = "single",
+  onPageChange,
   onLoadSuccess,
   onLoadError,
   fallbackUrl,
@@ -29,22 +31,41 @@ export default function PdfViewer({
   file: { url: string };
   page: number;
   width: number;
+  viewMode?: "single" | "continuous";
+  onPageChange?: (page: number) => void;
   onLoadSuccess: (numPages: number) => void;
   onLoadError: (message: string) => void;
   fallbackUrl?: string;
 }) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [totalNumPages, setTotalNumPages] = useState<number | null>(null);
 
   const handleError = useCallback((err: Error) => {
     setErrorMsg(err.message);
     onLoadError(err.message);
   }, [onLoadError]);
 
+  const handleDocumentSuccess = useCallback(({ numPages }: { numPages: number }) => {
+    setErrorMsg(null);
+    setTotalNumPages(numPages);
+    onLoadSuccess(numPages);
+  }, [onLoadSuccess]);
+
   const retry = () => {
     setErrorMsg(null);
     setReloadKey((k) => k + 1);
   };
+
+  // Scroll to active page when changed externally in continuous mode
+  useEffect(() => {
+    if (viewMode === "continuous") {
+      const el = document.getElementById(`pdf-page-container-${page}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }, [page, viewMode]);
 
   if (errorMsg) {
     return (
@@ -72,11 +93,33 @@ export default function PdfViewer({
     <Document
       key={reloadKey}
       file={file}
-      onLoadSuccess={({ numPages }) => { setErrorMsg(null); onLoadSuccess(numPages); }}
+      onLoadSuccess={handleDocumentSuccess}
       onLoadError={handleError}
       loading={<div className="p-10 text-center text-sm text-muted-foreground">Loading PDF…</div>}
     >
-      <Page pageNumber={page} width={width} renderTextLayer renderAnnotationLayer={false} />
+      {viewMode === "continuous" && totalNumPages ? (
+        <div className="space-y-6">
+          {Array.from({ length: totalNumPages }, (_, i) => i + 1).map((pgNum) => (
+            <div
+              key={pgNum}
+              id={`pdf-page-container-${pgNum}`}
+              className="rounded-lg shadow-sm border border-border/60 bg-card overflow-hidden"
+            >
+              <Page
+                pageNumber={pgNum}
+                width={width}
+                renderTextLayer
+                renderAnnotationLayer={false}
+              />
+              <div className="bg-muted/40 py-1.5 text-center text-xs font-mono text-muted-foreground border-t border-border/40">
+                Page {pgNum} of {totalNumPages}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Page pageNumber={page} width={width} renderTextLayer renderAnnotationLayer={false} />
+      )}
     </Document>
   );
 }

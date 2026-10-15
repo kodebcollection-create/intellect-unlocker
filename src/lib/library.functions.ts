@@ -791,3 +791,77 @@ export const getAdminActivity = createServerFn({ method: "GET" })
       book_title: r.book_id ? (bMap.get(r.book_id) ?? null) : (r.metadata as any)?.title ?? null,
     }));
   });
+
+// AI Socratic Reading Companion: helps readers analyze concepts, tactics, and defenses from the current book.
+export const askSocraticTutor = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) => z.object({
+    book_id: z.string().uuid(),
+    question: z.string().min(1).max(2000),
+    passage: z.string().max(4000).optional(),
+    page: z.number().int().optional(),
+  }).parse(i))
+  .handler(async ({ data, context }) => {
+    const { assertBookUnlocked } = await import("@/lib/unlock.server");
+    await assertBookUnlocked(context.userId, data.book_id);
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: book, error: bErr } = await supabaseAdmin
+      .from("books")
+      .select("id, title, author, description")
+      .eq("id", data.book_id)
+      .single();
+    if (bErr || !book) throw new Error("Book not found");
+
+    const apiKey = process.env.LOVABLE_API_KEY;
+    if (!apiKey) throw new Error("AI Companion is unavailable (LOVABLE_API_KEY not configured).");
+
+    const promptContext = [
+      `Book: "${book.title}"${book.author ? ` by ${book.author}` : ""}`,
+      book.description ? `Book Summary: ${book.description}` : "",
+      data.page ? `Current Page Reference: Page ${data.page}` : "",
+      data.passage ? `Quoted Passage:\n"${data.passage}"` : "",
+    ].filter(Boolean).join("\n\n");
+
+    const systemPrompt = `You are Umbra's Socratic Reading Companion, an analytical expert in behavioral psychology, dark triad dynamics, interpersonal influence, and cognitive defense.
+Your purpose is to help the reader deeply analyze the current book ("${book.title}").
+Guidelines:
+1. Explain core concepts clearly with rigorous analytical grounding.
+2. When answering, relate the discussion directly to the author's arguments and real-world interpersonal dynamics.
+3. Offer constructive defensive counter-tactics against manipulative patterns.
+4. Conclude with a single brief, thought-provoking Socratic question to stimulate critical thinking.
+Keep responses concise, incisive, and structured with clean markdown.`;
+
+    const body = {
+      model: "google/gemini-2.5-flash",
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `${promptContext}\n\nReader's Question / Analysis Request:\n${data.question}`,
+        },
+      ],
+    };
+
+    let aiRes: Response;
+    try {
+      aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
+        body: JSON.stringify(body),
+      });
+    } catch (e: unknown) {
+      throw new Error(safeError(e as { message?: string }, "Could not reach the AI Companion."));
+    }
+
+    if (aiRes.status === 429) throw new Error("AI rate limit reached. Please wait a moment.");
+    if (aiRes.status === 402) throw new Error("AI credits exhausted. Please check workspace settings.");
+    if (!aiRes.ok) {
+      throw new Error("The AI Companion encountered an error. Please try again.");
+    }
+
+    const j = await aiRes.json();
+    const reply = j.choices?.[0]?.message?.content ?? "No response generated.";
+    return { reply };
+  });
+
