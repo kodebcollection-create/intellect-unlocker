@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef, useMemo, lazy, Suspense } fro
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { useAuth } from "@/hooks/use-auth";
 import { getPdfUrl, saveProgress, markBookComplete, getBookDetails } from "@/lib/library.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +19,6 @@ import { toast } from "sonner";
 // Lazy-load so the module never evaluates during SSR/build prerender.
 const PdfViewer = lazy(() => import("@/components/pdf-viewer"));
 
-
 export const Route = createFileRoute("/_authenticated/read/$bookId")({
   ssr: false,
   component: Reader,
@@ -28,6 +28,7 @@ function Reader() {
   const { bookId } = Route.useParams();
   const nav = useNavigate();
   const qc = useQueryClient();
+  const { user } = useAuth();
   const fetchPdfUrl = useServerFn(getPdfUrl);
   const fetchBookDetails = useServerFn(getBookDetails);
   const persistProgress = useServerFn(saveProgress);
@@ -36,7 +37,7 @@ function Reader() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [numPages, setNumPages] = useState<number | null>(null);
-  const [fontSize, setFontSize] = useState(16);
+  const [zoom, setZoom] = useState<number>(100);
   const [highlightText, setHighlightText] = useState("");
   const [highlightColor, setHighlightColor] = useState("yellow");
   const [noteText, setNoteText] = useState("");
@@ -51,35 +52,35 @@ function Reader() {
   });
 
   const { data: progress } = useQuery({
-    queryKey: ["progress", bookId],
+    queryKey: ["progress", bookId, user?.id],
+    enabled: !!user,
     queryFn: async () => {
-      const { data: u } = await supabase.auth.getUser();
-      const { data } = await supabase.from("user_progress").select("*").eq("user_id", u.user!.id).eq("book_id", bookId).maybeSingle();
+      const { data } = await supabase.from("user_progress").select("*").eq("user_id", user!.id).eq("book_id", bookId).maybeSingle();
       return data;
     },
   });
 
   const { data: bookmarks, refetch: refetchBookmarks } = useQuery({
-    queryKey: ["bookmarks", bookId],
+    queryKey: ["bookmarks", bookId, user?.id],
+    enabled: !!user,
     queryFn: async () => {
-      const { data: u } = await supabase.auth.getUser();
-      const { data } = await supabase.from("bookmarks").select("*").eq("user_id", u.user!.id).eq("book_id", bookId).order("page");
+      const { data } = await supabase.from("bookmarks").select("*").eq("user_id", user!.id).eq("book_id", bookId).order("page");
       return data ?? [];
     },
   });
   const { data: highlights, refetch: refetchHighlights } = useQuery({
-    queryKey: ["highlights", bookId],
+    queryKey: ["highlights", bookId, user?.id],
+    enabled: !!user,
     queryFn: async () => {
-      const { data: u } = await supabase.auth.getUser();
-      const { data } = await supabase.from("highlights").select("*").eq("user_id", u.user!.id).eq("book_id", bookId).order("page");
+      const { data } = await supabase.from("highlights").select("*").eq("user_id", user!.id).eq("book_id", bookId).order("page");
       return data ?? [];
     },
   });
   const { data: notes, refetch: refetchNotes } = useQuery({
-    queryKey: ["notes", bookId],
+    queryKey: ["notes", bookId, user?.id],
+    enabled: !!user,
     queryFn: async () => {
-      const { data: u } = await supabase.auth.getUser();
-      const { data } = await supabase.from("notes").select("*").eq("user_id", u.user!.id).eq("book_id", bookId).order("page");
+      const { data } = await supabase.from("notes").select("*").eq("user_id", user!.id).eq("book_id", bookId).order("page");
       return data ?? [];
     },
   });
@@ -104,6 +105,23 @@ function Reader() {
     return () => ro.disconnect();
   }, [pdfUrl]);
 
+  // Keyboard navigation for page turning
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        setPage((p) => Math.max(1, p - 1));
+      } else if (e.key === "ArrowRight") {
+        setPage((p) => (numPages ? Math.min(numPages, p + 1) : p + 1));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [numPages]);
+
   const debouncedSave = useCallback((p: number, tp?: number) => {
     persistProgress({ data: { book_id: bookId, current_page: p, total_pages: tp } }).catch(() => {});
   }, [bookId, persistProgress]);
@@ -114,26 +132,23 @@ function Reader() {
   }, [page, numPages, debouncedSave]);
 
   const addBookmark = async () => {
-    const { data: u } = await supabase.auth.getUser();
-    await supabase.from("bookmarks").insert({ user_id: u.user!.id, book_id: bookId, page, label: `Page ${page}` });
+    if (!user) return;
+    await supabase.from("bookmarks").insert({ user_id: user.id, book_id: bookId, page, label: `Page ${page}` });
     refetchBookmarks(); toast.success(`Bookmarked page ${page}`);
   };
   const saveHighlight = async () => {
-    if (!highlightText.trim()) return;
-    const { data: u } = await supabase.auth.getUser();
-    await supabase.from("highlights").insert({ user_id: u.user!.id, book_id: bookId, page, text: highlightText, color: highlightColor });
+    if (!highlightText.trim() || !user) return;
+    await supabase.from("highlights").insert({ user_id: user.id, book_id: bookId, page, text: highlightText, color: highlightColor });
     setHighlightText(""); refetchHighlights(); toast.success("Highlight saved");
   };
   const saveNote = async () => {
-    if (!noteText.trim()) return;
-    const { data: u } = await supabase.auth.getUser();
-    await supabase.from("notes").insert({ user_id: u.user!.id, book_id: bookId, page, content: noteText });
+    if (!noteText.trim() || !user) return;
+    await supabase.from("notes").insert({ user_id: user.id, book_id: bookId, page, content: noteText });
     setNoteText(""); refetchNotes(); toast.success("Note saved");
   };
   const saveVocab = async () => {
-    if (!vocabWord.trim()) return;
-    const { data: u } = await supabase.auth.getUser();
-    await supabase.from("vocabulary").insert({ user_id: u.user!.id, book_id: bookId, word: vocabWord, definition: vocabDef });
+    if (!vocabWord.trim() || !user) return;
+    await supabase.from("vocabulary").insert({ user_id: user.id, book_id: bookId, word: vocabWord, definition: vocabDef });
     setVocabWord(""); setVocabDef(""); toast.success("Added to vocabulary");
   };
   const finish = async () => {
@@ -229,8 +244,30 @@ function Reader() {
               <SheetHeader><SheetTitle>Reader settings</SheetTitle></SheetHeader>
               <div className="mt-6 space-y-6">
                 <div>
-                  <Label>Font size: {fontSize}px</Label>
-                  <Slider value={[fontSize]} min={12} max={24} step={1} onValueChange={(v) => setFontSize(v[0])} className="mt-2" />
+                  <div className="flex items-center justify-between">
+                    <Label>Zoom / Scale: {zoom}%</Label>
+                  </div>
+                  <Slider
+                    value={[zoom]}
+                    min={60}
+                    max={160}
+                    step={5}
+                    onValueChange={(v) => setZoom(v[0])}
+                    className="mt-2"
+                  />
+                  <div className="mt-3 flex gap-2">
+                    {[80, 100, 125, 150].map((preset) => (
+                      <Button
+                        key={preset}
+                        size="sm"
+                        variant={zoom === preset ? "default" : "outline"}
+                        className="h-7 text-xs flex-1"
+                        onClick={() => setZoom(preset)}
+                      >
+                        {preset}%
+                      </Button>
+                    ))}
+                  </div>
                 </div>
                 {pdfUrl && (
                   <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm text-primary underline">
@@ -258,14 +295,14 @@ function Reader() {
 
       <div className="grid flex-1 gap-0 md:grid-cols-[1fr_360px]">
         {/* PDF viewer */}
-        <div className="flex min-w-0 flex-col" style={{ fontSize }}>
+        <div className="flex min-w-0 flex-col">
           <div ref={containerRef} className="flex flex-1 justify-center overflow-auto bg-muted/30 p-2 sm:p-4">
             {fileProp ? (
               <Suspense fallback={<div className="p-10 text-center text-sm text-muted-foreground">Loading PDF…</div>}>
                 <PdfViewer
                   file={fileProp}
                   page={page}
-                  width={Math.max(280, Math.min(containerWidth - 16, 900))}
+                  width={Math.round(Math.max(280, Math.min(containerWidth - 16, 900)) * (zoom / 100))}
                   onLoadSuccess={(n) => setNumPages(n)}
                   onLoadError={() => { /* inline error UI handled in PdfViewer */ }}
                   fallbackUrl={pdfUrl ?? undefined}

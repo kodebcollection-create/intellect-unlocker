@@ -466,8 +466,7 @@ export const generateQuizFromPdf = createServerFn({ method: "POST" })
     if (buf.length > MAX) {
       throw new Error(`PDF is ${(buf.length / 1024 / 1024).toFixed(1)}MB. The AI quiz generator accepts PDFs up to ~19MB — please upload a smaller or compressed version of this book.`);
     }
-    let bin = ""; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
-    const b64 = btoa(bin);
+    const b64 = Buffer.from(buf).toString("base64");
     const apiKey = process.env.LOVABLE_API_KEY;
     if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
 
@@ -540,16 +539,15 @@ export const getAdminBooks = createServerFn({ method: "GET" })
       .order("global_order");
     if (error) throw new Error(safeError(error));
 
-    const ids = (books ?? []).map((b) => b.id);
+    const { data: allQuestions, error: countError } = await supabaseAdmin
+      .from("quiz_questions")
+      .select("book_id");
+    if (countError) throw new Error(safeError(countError));
+
     const counts = new Map<string, number>();
-    await Promise.all(ids.map(async (id) => {
-      const { count, error: countError } = await supabaseAdmin
-        .from("quiz_questions")
-        .select("id", { count: "exact", head: true })
-        .eq("book_id", id);
-      if (countError) throw new Error(safeError(countError));
-      counts.set(id, count ?? 0);
-    }));
+    for (const q of allQuestions ?? []) {
+      counts.set(q.book_id, (counts.get(q.book_id) ?? 0) + 1);
+    }
 
     return (books ?? []).map((book) => ({
       ...book,

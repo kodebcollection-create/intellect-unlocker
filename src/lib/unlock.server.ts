@@ -23,7 +23,8 @@ export async function assertBookUnlocked(userId: string, bookId: string): Promis
   const { data: priors, error: pErr } = await supabaseAdmin
     .from("books")
     .select("id")
-    .lt("global_order", book.global_order);
+    .lt("global_order", book.global_order)
+    .eq("published", true);
   if (pErr) throw new Error(pErr.message);
   const priorIds = (priors ?? []).map((b) => b.id);
   if (priorIds.length === 0) return;
